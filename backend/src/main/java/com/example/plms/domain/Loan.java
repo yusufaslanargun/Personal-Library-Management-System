@@ -9,8 +9,12 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
+import jakarta.persistence.PrePersist;
+import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 import java.time.LocalDate;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 
 @Entity
 @Table(name = "loan")
@@ -39,6 +43,9 @@ public class Loan {
     @Column(nullable = false)
     private LoanStatus status = LoanStatus.ACTIVE;
 
+    @Column(nullable = false)
+    private OffsetDateTime updatedAt;
+
     protected Loan() {
     }
 
@@ -47,6 +54,16 @@ public class Loan {
         this.toWhom = toWhom;
         this.startDate = startDate;
         this.dueDate = dueDate;
+    }
+
+    @PrePersist
+    void onCreate() {
+        updatedAt = OffsetDateTime.now(ZoneOffset.UTC);
+    }
+
+    @PreUpdate
+    void onUpdate() {
+        updatedAt = OffsetDateTime.now(ZoneOffset.UTC);
     }
 
     public Long getId() {
@@ -83,5 +100,13 @@ public class Loan {
 
     public void setStatus(LoanStatus status) {
         this.status = status;
+    }
+
+    public OffsetDateTime getUpdatedAt() {
+        return updatedAt;
+    }
+
+    public void setUpdatedAt(OffsetDateTime updatedAt) {
+        this.updatedAt = updatedAt;
     }
 }

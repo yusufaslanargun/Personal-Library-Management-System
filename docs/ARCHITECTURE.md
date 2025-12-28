@@ -13,6 +13,7 @@
   - Data I/O & Sync: import/export, sync state
 - Persistence: Spring Data JPA repositories + Flyway migrations
 - External Provider Clients: Open Library (ISBN, active), Google Books (future), OMDb (optional)
+- Auth: JWT-based login with BCrypt password hashing
 
 ## Data Model
 
@@ -27,7 +28,7 @@
 ## Sync (Feature Flag)
 
 Sync is controlled by `PLMS_SYNC_ENABLED`. The service runs a full sync on first run and sends incremental updates afterward. Conflicts are resolved with last-write-wins (LWW) and conflict counts are stored in `sync_state`.
-Offline queueing is not implemented; sync runs only on demand.
+Delete operations are queued via `sync_outbox`. Sync can attempt a final flush on shutdown when `PLMS_SYNC_FLUSH_ON_SHUTDOWN=true`.
 
 ## Key Invariants
 

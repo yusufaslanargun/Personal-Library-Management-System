@@ -9,6 +9,7 @@ public class SyncProperties {
     private String apiKey;
     private int retryMax = 3;
     private int timeoutMs = 4000;
+    private boolean flushOnShutdown = true;
 
     public boolean isEnabled() {
         return enabled;
@@ -48,5 +49,13 @@ public class SyncProperties {
 
     public void setTimeoutMs(int timeoutMs) {
         this.timeoutMs = timeoutMs;
+    }
+
+    public boolean isFlushOnShutdown() {
+        return flushOnShutdown;
+    }
+
+    public void setFlushOnShutdown(boolean flushOnShutdown) {
+        this.flushOnShutdown = flushOnShutdown;
     }
 }

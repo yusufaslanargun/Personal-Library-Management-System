@@ -8,7 +8,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.web.client.RestTemplate;
 
 @Configuration
-@EnableConfigurationProperties({ExternalProviderProperties.class, SyncProperties.class})
+@EnableConfigurationProperties({ExternalProviderProperties.class, SyncProperties.class, AuthProperties.class})
 public class ExternalClientConfig {
     @Bean
     public RestTemplate restTemplate(RestTemplateBuilder builder) {

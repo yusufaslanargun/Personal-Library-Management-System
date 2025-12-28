@@ -23,11 +23,14 @@ public class ListService {
     private final MediaListRepository listRepository;
     private final ListItemRepository listItemRepository;
     private final MediaItemRepository itemRepository;
+    private final SyncOutboxService syncOutboxService;
 
-    public ListService(MediaListRepository listRepository, ListItemRepository listItemRepository, MediaItemRepository itemRepository) {
+    public ListService(MediaListRepository listRepository, ListItemRepository listItemRepository,
+                       MediaItemRepository itemRepository, SyncOutboxService syncOutboxService) {
         this.listRepository = listRepository;
         this.listItemRepository = listItemRepository;
         this.itemRepository = itemRepository;
+        this.syncOutboxService = syncOutboxService;
     }
 
     @Transactional
@@ -50,6 +53,7 @@ public class ListService {
         MediaList list = listRepository.findById(id)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "List not found"));
         listRepository.delete(list);
+        syncOutboxService.enqueueDelete("LIST", String.valueOf(id));
     }
 
     @Transactional(readOnly = true)
@@ -87,6 +91,7 @@ public class ListService {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "List item not found");
         }
         listItemRepository.deleteById(id);
+        syncOutboxService.enqueueDelete("LIST_ITEM", listId + ":" + itemId);
         reorderInternal(listId, null);
         MediaList list = listRepository.findById(listId)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "List not found"));

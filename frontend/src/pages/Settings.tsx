@@ -106,6 +106,9 @@ export default function Settings() {
         ) : (
           <p className="muted">Sync status unavailable.</p>
         )}
+        {syncStatus && (syncStatus.lastConflictCount || 0) > 0 && (
+          <div className="banner warn">Conflicts detected. Latest changes kept (LWW).</div>
+        )}
         <div className="inline">
           <button onClick={() => toggleSync(true)}>Enable</button>
           <button onClick={() => toggleSync(false)}>Disable</button>

@@ -4,6 +4,13 @@ const pastDate = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString().sl
 
 test('PLMS smoke flow', async ({ page }) => {
   await page.goto('/')
+  const email = `user-${Date.now()}@example.com`
+  await page.getByRole('button', { name: 'Register' }).click()
+  await page.getByLabel('Email').fill(email)
+  await page.getByLabel('Password').fill('password123')
+  await page.getByLabel('Display Name').fill('Tester')
+  await page.getByRole('button', { name: 'Create Account' }).click()
+
   await page.getByText('Add').click()
 
   await page.getByPlaceholder('ISBN or barcode').fill('9780000000000')

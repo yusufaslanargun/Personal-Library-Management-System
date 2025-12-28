@@ -23,7 +23,7 @@
 | FR-17 | DONE | Loan create validates dates + overdue dashboard |
 | FR-18 | DONE | `POST /loans/{loanId}/return` keeps history |
 | FR-19 | DONE | `GET /export`, `POST /import` JSON/CSV with validation + summary |
-| FR-20 | DONE | `/sync/*` endpoints, LWW resolution + status |
+| FR-20 | DONE | `/sync/*` endpoints + `/sync/remote`, LWW resolution + conflict notice |
 
 ## Non-Functional Requirements
 

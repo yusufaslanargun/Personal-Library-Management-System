@@ -34,6 +34,35 @@ a {
   flex-direction: column;
 }
 
+.auth {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 32px;
+}
+
+.auth-card {
+  width: min(520px, 100%);
+}
+
+.tabs {
+  display: inline-flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.tabs button {
+  background: transparent;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  padding: 6px 12px;
+  border-radius: 999px;
+}
+
+.tabs button.active {
+  background: #ffe2c4;
+  border-color: rgba(0, 0, 0, 0.12);
+}
+
 .topbar {
   display: flex;
   align-items: center;
@@ -156,6 +185,11 @@ a {
 .banner.success {
   background: #e4ffe7;
   color: #1b6a2c;
+}
+
+.banner.warn {
+  background: #fff2cc;
+  color: #7a4c00;
 }
 
 .form-grid {

@@ -21,6 +21,10 @@ Services:
 - Swagger UI: http://localhost:8080/swagger-ui/index.html
 - Web: http://localhost:5173
 
+## Login
+
+Open the web app and register a user on first run. The API requires a JWT token issued by `/auth/login` or `/auth/register`.
+
 ## Local Development
 
 Backend:
@@ -70,7 +74,7 @@ Run API + Web before E2E (or use docker compose).
 
 ## Environment Variables
 
-See `.env.example` for all configuration, including API keys and sync settings.
+See `.env.example` for all configuration, including `PLMS_JWT_SECRET`, API keys, and sync settings.
 Set `PLMS_EXTERNAL_MOCK=true` to run without external API calls (useful for tests).
 
 ## Documentation

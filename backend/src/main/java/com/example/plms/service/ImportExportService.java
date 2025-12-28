@@ -49,6 +49,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
+import com.example.plms.repository.SyncStateRepository;
+import com.example.plms.domain.SyncState;
 
 @Service
 public class ImportExportService {
@@ -64,6 +66,7 @@ public class ImportExportService {
     private final ProgressLogRepository progressRepository;
     private final LoanRepository loanRepository;
     private final ExternalLinkRepository externalLinkRepository;
+    private final SyncStateRepository syncStateRepository;
     private final JdbcTemplate jdbcTemplate;
     private final ObjectMapper objectMapper;
 
@@ -72,6 +75,7 @@ public class ImportExportService {
                                ProgressLogRepository progressRepository,
                                LoanRepository loanRepository,
                                ExternalLinkRepository externalLinkRepository,
+                               SyncStateRepository syncStateRepository,
                                JdbcTemplate jdbcTemplate,
                                ObjectMapper objectMapper) {
         this.itemRepository = itemRepository;
@@ -79,6 +83,7 @@ public class ImportExportService {
         this.progressRepository = progressRepository;
         this.loanRepository = loanRepository;
         this.externalLinkRepository = externalLinkRepository;
+        this.syncStateRepository = syncStateRepository;
         this.jdbcTemplate = jdbcTemplate;
         this.objectMapper = objectMapper;
     }
@@ -200,20 +205,21 @@ public class ImportExportService {
                 added++;
             }
             jdbcTemplate.update("""
-                INSERT INTO list (id, name)
-                VALUES (?, ?)
-                ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name
-                """, list.id(), list.name());
+                INSERT INTO list (id, name, created_at, updated_at)
+                VALUES (?, ?, COALESCE((SELECT created_at FROM list WHERE id = ?), ?), ?)
+                ON CONFLICT (id) DO UPDATE
+                SET name = EXCLUDED.name, updated_at = EXCLUDED.updated_at
+                """, list.id(), list.name(), list.id(), OffsetDateTime.now(), OffsetDateTime.now());
         }
 
         for (ExportListItem listItem : bundle.listItems()) {
             jdbcTemplate.update("DELETE FROM list_item WHERE list_id = ? AND item_id = ?", listItem.listId(), listItem.itemId());
             jdbcTemplate.update("""
-                INSERT INTO list_item (list_id, item_id, position, priority)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO list_item (list_id, item_id, position, priority, updated_at)
+                VALUES (?, ?, ?, ?, ?)
                 ON CONFLICT (list_id, item_id) DO UPDATE
-                SET position = EXCLUDED.position, priority = EXCLUDED.priority
-                """, listItem.listId(), listItem.itemId(), listItem.position(), listItem.priority());
+                SET position = EXCLUDED.position, priority = EXCLUDED.priority, updated_at = EXCLUDED.updated_at
+                """, listItem.listId(), listItem.itemId(), listItem.position(), listItem.priority(), OffsetDateTime.now());
         }
 
         for (ExportProgressLog log : bundle.progressLogs()) {
@@ -223,15 +229,16 @@ public class ImportExportService {
                 added++;
             }
             jdbcTemplate.update("""
-                INSERT INTO progress_log (id, item_id, log_date, duration_minutes, page_or_minute, percent)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO progress_log (id, item_id, log_date, duration_minutes, page_or_minute, percent, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT (id) DO UPDATE SET
                 item_id = EXCLUDED.item_id,
                 log_date = EXCLUDED.log_date,
                 duration_minutes = EXCLUDED.duration_minutes,
                 page_or_minute = EXCLUDED.page_or_minute,
-                percent = EXCLUDED.percent
-                """, log.id(), log.itemId(), log.date(), log.durationMinutes(), log.pageOrMinute(), log.percent());
+                percent = EXCLUDED.percent,
+                updated_at = EXCLUDED.updated_at
+                """, log.id(), log.itemId(), log.date(), log.durationMinutes(), log.pageOrMinute(), log.percent(), OffsetDateTime.now());
         }
 
         for (ExportLoan loan : bundle.loans()) {
@@ -241,16 +248,18 @@ public class ImportExportService {
                 added++;
             }
             jdbcTemplate.update("""
-                INSERT INTO loan (id, item_id, to_whom, start_date, due_date, returned_at, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO loan (id, item_id, to_whom, start_date, due_date, returned_at, status, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT (id) DO UPDATE SET
                 item_id = EXCLUDED.item_id,
                 to_whom = EXCLUDED.to_whom,
                 start_date = EXCLUDED.start_date,
                 due_date = EXCLUDED.due_date,
                 returned_at = EXCLUDED.returned_at,
-                status = EXCLUDED.status
-                """, loan.id(), loan.itemId(), loan.toWhom(), loan.startDate(), loan.dueDate(), loan.returnedAt(), loan.status().name());
+                status = EXCLUDED.status,
+                updated_at = EXCLUDED.updated_at
+                """, loan.id(), loan.itemId(), loan.toWhom(), loan.startDate(), loan.dueDate(), loan.returnedAt(),
+                loan.status().name(), OffsetDateTime.now());
         }
 
         for (ExportExternalLink link : bundle.externalLinks()) {
@@ -260,8 +269,8 @@ public class ImportExportService {
                 added++;
             }
             jdbcTemplate.update("""
-                INSERT INTO external_link (id, item_id, provider, external_id, url, rating, summary, last_sync_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO external_link (id, item_id, provider, external_id, url, rating, summary, last_sync_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT (id) DO UPDATE SET
                 item_id = EXCLUDED.item_id,
                 provider = EXCLUDED.provider,
@@ -269,11 +278,14 @@ public class ImportExportService {
                 url = EXCLUDED.url,
                 rating = EXCLUDED.rating,
                 summary = EXCLUDED.summary,
-                last_sync_at = EXCLUDED.last_sync_at
-                """, link.id(), link.itemId(), link.provider(), link.externalId(), link.url(), link.rating(), link.summary(), link.lastSyncAt());
+                last_sync_at = EXCLUDED.last_sync_at,
+                updated_at = EXCLUDED.updated_at
+                """, link.id(), link.itemId(), link.provider(), link.externalId(), link.url(), link.rating(), link.summary(),
+                link.lastSyncAt(), OffsetDateTime.now());
         }
 
         updateSequences();
+        markNeedsFullSync();
         return new ImportSummary(added, updated, 0, List.of());
     }
 
@@ -369,6 +381,12 @@ public class ImportExportService {
         jdbcTemplate.execute("SELECT setval(pg_get_serial_sequence('loan','id'), COALESCE(MAX(id), 1)) FROM loan");
         jdbcTemplate.execute("SELECT setval(pg_get_serial_sequence('external_link','id'), COALESCE(MAX(id), 1)) FROM external_link");
         jdbcTemplate.execute("SELECT setval(pg_get_serial_sequence('tag','id'), COALESCE(MAX(id), 1)) FROM tag");
+    }
+
+    private void markNeedsFullSync() {
+        SyncState state = syncStateRepository.findById(1).orElseGet(() -> syncStateRepository.save(new SyncState()));
+        state.setNeedsFullSync(true);
+        syncStateRepository.save(state);
     }
 
     private List<String> validateBundle(ExportBundle bundle) {

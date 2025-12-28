@@ -1,22 +1,53 @@
 package com.example.plms.service;
 
 import com.example.plms.config.SyncProperties;
+import com.example.plms.domain.BookInfo;
+import com.example.plms.domain.DvdInfo;
+import com.example.plms.domain.ExternalLink;
+import com.example.plms.domain.ListItem;
+import com.example.plms.domain.Loan;
 import com.example.plms.domain.MediaItem;
+import com.example.plms.domain.MediaList;
+import com.example.plms.domain.ProgressLog;
+import com.example.plms.domain.SyncOutboxEntry;
 import com.example.plms.domain.SyncState;
+import com.example.plms.domain.Tag;
+import com.example.plms.repository.ExternalLinkRepository;
+import com.example.plms.repository.ListItemRepository;
+import com.example.plms.repository.LoanRepository;
 import com.example.plms.repository.MediaItemRepository;
+import com.example.plms.repository.MediaListRepository;
+import com.example.plms.repository.ProgressLogRepository;
+import com.example.plms.repository.SyncOutboxRepository;
 import com.example.plms.repository.SyncStateRepository;
 import com.example.plms.web.dto.SyncStatusResponse;
+import com.example.plms.web.dto.sync.SyncBookInfo;
+import com.example.plms.web.dto.sync.SyncDelete;
+import com.example.plms.web.dto.sync.SyncDvdInfo;
+import com.example.plms.web.dto.sync.SyncExternalLink;
+import com.example.plms.web.dto.sync.SyncItem;
+import com.example.plms.web.dto.sync.SyncList;
+import com.example.plms.web.dto.sync.SyncListItem;
+import com.example.plms.web.dto.sync.SyncLoan;
+import com.example.plms.web.dto.sync.SyncPayload;
+import com.example.plms.web.dto.sync.SyncProgressLog;
+import com.example.plms.web.dto.sync.SyncRequest;
+import com.example.plms.web.dto.sync.SyncResponse;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestClientException;
@@ -29,13 +60,35 @@ public class SyncService {
     private final SyncProperties properties;
     private final SyncStateRepository syncStateRepository;
     private final MediaItemRepository itemRepository;
+    private final MediaListRepository listRepository;
+    private final ListItemRepository listItemRepository;
+    private final ProgressLogRepository progressLogRepository;
+    private final LoanRepository loanRepository;
+    private final ExternalLinkRepository externalLinkRepository;
+    private final SyncOutboxRepository syncOutboxRepository;
+    private final JdbcTemplate jdbcTemplate;
     private final RestTemplate restTemplate;
 
     public SyncService(SyncProperties properties, SyncStateRepository syncStateRepository,
-                       MediaItemRepository itemRepository, RestTemplate restTemplate) {
+                       MediaItemRepository itemRepository,
+                       MediaListRepository listRepository,
+                       ListItemRepository listItemRepository,
+                       ProgressLogRepository progressLogRepository,
+                       LoanRepository loanRepository,
+                       ExternalLinkRepository externalLinkRepository,
+                       SyncOutboxRepository syncOutboxRepository,
+                       JdbcTemplate jdbcTemplate,
+                       RestTemplate restTemplate) {
         this.properties = properties;
         this.syncStateRepository = syncStateRepository;
         this.itemRepository = itemRepository;
+        this.listRepository = listRepository;
+        this.listItemRepository = listItemRepository;
+        this.progressLogRepository = progressLogRepository;
+        this.loanRepository = loanRepository;
+        this.externalLinkRepository = externalLinkRepository;
+        this.syncOutboxRepository = syncOutboxRepository;
+        this.jdbcTemplate = jdbcTemplate;
         this.restTemplate = restTemplate;
     }
 
@@ -61,21 +114,13 @@ public class SyncService {
             syncStateRepository.save(state);
             return toResponse(state);
         }
-
-        OffsetDateTime since = state.getLastSyncAt();
-        List<MediaItem> items = itemRepository.findAll();
-        List<Map<String, Object>> payload = new ArrayList<>();
-        for (MediaItem item : items) {
-            if (since == null || item.getUpdatedAt().isAfter(since)) {
-                payload.add(Map.of(
-                    "id", item.getId(),
-                    "type", item.getType().name(),
-                    "title", item.getTitle(),
-                    "year", item.getYear(),
-                    "updatedAt", item.getUpdatedAt().toString()
-                ));
-            }
+        if (state.getClientId() == null || state.getClientId().isBlank()) {
+            state.setClientId(UUID.randomUUID().toString());
         }
+        boolean fullSync = state.getLastSyncAt() == null || state.isNeedsFullSync();
+        OffsetDateTime since = fullSync ? null : state.getLastSyncAt();
+        SyncPayload payload = fullSync ? buildFullPayload() : buildIncrementalPayload(since);
+        SyncRequest request = new SyncRequest(state.getClientId(), since, payload);
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
@@ -84,11 +129,24 @@ public class SyncService {
         }
 
         try {
-            ResponseEntity<List> response = restTemplate.postForEntity(properties.getEndpoint(), new HttpEntity<>(payload, headers), List.class);
-            int conflicts = applyRemote(response.getBody());
-            state.setLastConflictCount(conflicts);
-            state.setLastStatus("success");
-            state.setLastSyncAt(OffsetDateTime.now(ZoneOffset.UTC));
+            ResponseEntity<SyncResponse> response = restTemplate.postForEntity(
+                properties.getEndpoint(),
+                new HttpEntity<>(request, headers),
+                SyncResponse.class
+            );
+            SyncResponse syncResponse = response.getBody();
+            int remoteConflicts = syncResponse == null ? 0 : syncResponse.conflictCount();
+            int localConflicts = syncResponse == null ? 0 : applyRemoteChanges(syncResponse.changes());
+            if (syncResponse != null && syncResponse.changes() != null) {
+                updateSequences();
+            }
+            state.setLastConflictCount(remoteConflicts + localConflicts);
+            state.setLastStatus(state.getLastConflictCount() > 0 ? "conflicts" : "success");
+            state.setLastSyncAt(syncResponse != null && syncResponse.serverTime() != null
+                ? syncResponse.serverTime()
+                : OffsetDateTime.now(ZoneOffset.UTC));
+            state.setNeedsFullSync(false);
+            clearOutbox(fullSync, state.getLastSyncAt());
             syncStateRepository.save(state);
             return toResponse(state);
         } catch (RestClientException ex) {
@@ -105,33 +163,18 @@ public class SyncService {
         return toResponse(state);
     }
 
-    private int applyRemote(List<?> payload) {
+    private int applyRemoteChanges(SyncPayload payload) {
         if (payload == null) {
             return 0;
         }
         int conflicts = 0;
-        for (Object obj : payload) {
-            if (!(obj instanceof Map<?, ?> map)) {
-                continue;
-            }
-            Object idValue = map.get("id");
-            if (idValue == null) {
-                continue;
-            }
-            Long id = Long.valueOf(idValue.toString());
-            MediaItem local = itemRepository.findById(id).orElse(null);
-            if (local == null) {
-                continue;
-            }
-            OffsetDateTime remoteUpdated = OffsetDateTime.parse(String.valueOf(map.get("updatedAt")));
-            if (remoteUpdated.isAfter(local.getUpdatedAt())) {
-                local.setTitle(String.valueOf(map.get("title")));
-                local.setYear(Integer.valueOf(String.valueOf(map.get("year"))));
-                itemRepository.save(local);
-            } else {
-                conflicts++;
-            }
-        }
+        conflicts += applyItems(payload.items());
+        conflicts += applyLists(payload.lists());
+        conflicts += applyListItems(payload.listItems());
+        conflicts += applyProgress(payload.progressLogs());
+        conflicts += applyLoans(payload.loans());
+        conflicts += applyExternalLinks(payload.externalLinks());
+        conflicts += applyDeletes(payload.deletes());
         return conflicts;
     }
 
@@ -141,5 +184,521 @@ public class SyncService {
 
     private SyncStatusResponse toResponse(SyncState state) {
         return new SyncStatusResponse(properties.isEnabled(), state.getLastSyncAt(), state.getLastStatus(), state.getLastConflictCount());
+    }
+
+    private SyncPayload buildFullPayload() {
+        return new SyncPayload(
+            true,
+            itemRepository.findAll().stream().map(this::toSyncItem).toList(),
+            listRepository.findAll().stream().map(this::toSyncList).toList(),
+            listItemRepository.findAll().stream().map(this::toSyncListItem).toList(),
+            progressLogRepository.findAll().stream().map(this::toSyncProgressLog).toList(),
+            loanRepository.findAll().stream().map(this::toSyncLoan).toList(),
+            externalLinkRepository.findAll().stream().map(this::toSyncExternalLink).toList(),
+            List.of()
+        );
+    }
+
+    private SyncPayload buildIncrementalPayload(OffsetDateTime since) {
+        return new SyncPayload(
+            false,
+            filterByUpdatedAt(itemRepository.findAll().stream().map(this::toSyncItem).toList(), since),
+            filterByUpdatedAt(listRepository.findAll().stream().map(this::toSyncList).toList(), since),
+            filterByUpdatedAt(listItemRepository.findAll().stream().map(this::toSyncListItem).toList(), since),
+            filterByUpdatedAt(progressLogRepository.findAll().stream().map(this::toSyncProgressLog).toList(), since),
+            filterByUpdatedAt(loanRepository.findAll().stream().map(this::toSyncLoan).toList(), since),
+            filterByUpdatedAt(externalLinkRepository.findAll().stream().map(this::toSyncExternalLink).toList(), since),
+            loadDeletes(since)
+        );
+    }
+
+    private List<SyncDelete> loadDeletes(OffsetDateTime since) {
+        if (since == null) {
+            return List.of();
+        }
+        List<SyncOutboxEntry> entries = syncOutboxRepository.findByQueuedAtAfterOrderByQueuedAtAsc(since);
+        Map<String, SyncDelete> deduped = new LinkedHashMap<>();
+        for (SyncOutboxEntry entry : entries) {
+            String key = entry.getEntityType() + ":" + entry.getEntityKey();
+            SyncDelete existing = deduped.get(key);
+            if (existing == null || entry.getQueuedAt().isAfter(existing.deletedAt())) {
+                deduped.put(key, new SyncDelete(entry.getEntityType(), entry.getEntityKey(), entry.getQueuedAt()));
+            }
+        }
+        return new ArrayList<>(deduped.values());
+    }
+
+    private void clearOutbox(boolean fullSync, OffsetDateTime syncedAt) {
+        if (fullSync) {
+            syncOutboxRepository.deleteAll();
+            return;
+        }
+        List<SyncOutboxEntry> entries = syncOutboxRepository.findAll();
+        List<SyncOutboxEntry> toDelete = new ArrayList<>();
+        for (SyncOutboxEntry entry : entries) {
+            if (entry.getQueuedAt().isBefore(syncedAt) || entry.getQueuedAt().isEqual(syncedAt)) {
+                toDelete.add(entry);
+            }
+        }
+        syncOutboxRepository.deleteAll(toDelete);
+    }
+
+    private SyncItem toSyncItem(MediaItem item) {
+        SyncBookInfo bookInfo = null;
+        if (item.getBookInfo() != null) {
+            BookInfo info = item.getBookInfo();
+            bookInfo = new SyncBookInfo(info.getIsbn(), info.getPages(), info.getPublisher(),
+                info.getAuthors() == null ? List.of() : List.copyOf(info.getAuthors()));
+        }
+        SyncDvdInfo dvdInfo = null;
+        if (item.getDvdInfo() != null) {
+            DvdInfo info = item.getDvdInfo();
+            dvdInfo = new SyncDvdInfo(info.getRuntime(), info.getDirector(),
+                info.getCast() == null ? List.of() : List.copyOf(info.getCast()));
+        }
+        List<String> tags = item.getTags().stream().map(Tag::getName).sorted().toList();
+        return new SyncItem(
+            item.getId(),
+            item.getType(),
+            item.getTitle(),
+            item.getYear(),
+            item.getCondition(),
+            item.getLocation(),
+            item.getStatus(),
+            item.getDeletedAt(),
+            item.getCreatedAt(),
+            item.getUpdatedAt(),
+            item.getProgressPercent(),
+            item.getProgressValue(),
+            item.getTotalValue(),
+            tags,
+            bookInfo,
+            dvdInfo
+        );
+    }
+
+    private SyncList toSyncList(MediaList list) {
+        return new SyncList(list.getId(), list.getName(), list.getUpdatedAt());
+    }
+
+    private SyncListItem toSyncListItem(ListItem item) {
+        return new SyncListItem(
+            item.getId().getListId(),
+            item.getId().getItemId(),
+            item.getPosition(),
+            item.getPriority(),
+            item.getUpdatedAt()
+        );
+    }
+
+    private SyncProgressLog toSyncProgressLog(ProgressLog log) {
+        return new SyncProgressLog(
+            log.getId(),
+            log.getItem().getId(),
+            log.getLogDate(),
+            log.getDurationMinutes(),
+            log.getPageOrMinute(),
+            log.getPercent(),
+            log.getUpdatedAt()
+        );
+    }
+
+    private SyncLoan toSyncLoan(Loan loan) {
+        return new SyncLoan(
+            loan.getId(),
+            loan.getItem().getId(),
+            loan.getToWhom(),
+            loan.getStartDate(),
+            loan.getDueDate(),
+            loan.getReturnedAt(),
+            loan.getStatus(),
+            loan.getUpdatedAt()
+        );
+    }
+
+    private SyncExternalLink toSyncExternalLink(ExternalLink link) {
+        return new SyncExternalLink(
+            link.getId(),
+            link.getItem().getId(),
+            link.getProvider(),
+            link.getExternalId(),
+            link.getUrl(),
+            link.getRating(),
+            link.getSummary(),
+            link.getLastSyncAt(),
+            link.getUpdatedAt()
+        );
+    }
+
+    private <T> List<T> filterByUpdatedAt(List<T> items, OffsetDateTime since) {
+        if (since == null || items == null) {
+            return items == null ? List.of() : items;
+        }
+        List<T> results = new ArrayList<>();
+        for (T item : items) {
+            OffsetDateTime updatedAt = extractUpdatedAt(item);
+            if (updatedAt != null && updatedAt.isAfter(since)) {
+                results.add(item);
+            }
+        }
+        return results;
+    }
+
+    private OffsetDateTime extractUpdatedAt(Object item) {
+        if (item instanceof SyncItem sync) {
+            return sync.updatedAt();
+        }
+        if (item instanceof SyncList sync) {
+            return sync.updatedAt();
+        }
+        if (item instanceof SyncListItem sync) {
+            return sync.updatedAt();
+        }
+        if (item instanceof SyncProgressLog sync) {
+            return sync.updatedAt();
+        }
+        if (item instanceof SyncLoan sync) {
+            return sync.updatedAt();
+        }
+        if (item instanceof SyncExternalLink sync) {
+            return sync.updatedAt();
+        }
+        return null;
+    }
+
+    private int applyItems(List<SyncItem> items) {
+        if (items == null) {
+            return 0;
+        }
+        int conflicts = 0;
+        for (SyncItem item : items) {
+            if (item.id() == null || item.updatedAt() == null) {
+                continue;
+            }
+            OffsetDateTime localUpdated = findUpdatedAt("media_item", "id", item.id());
+            if (localUpdated != null && !item.updatedAt().isAfter(localUpdated)) {
+                conflicts++;
+                continue;
+            }
+            upsertItem(item);
+        }
+        return conflicts;
+    }
+
+    private int applyLists(List<SyncList> lists) {
+        if (lists == null) {
+            return 0;
+        }
+        int conflicts = 0;
+        for (SyncList list : lists) {
+            if (list.id() == null || list.updatedAt() == null) {
+                continue;
+            }
+            OffsetDateTime localUpdated = findUpdatedAt("list", "id", list.id());
+            if (localUpdated != null && !list.updatedAt().isAfter(localUpdated)) {
+                conflicts++;
+                continue;
+            }
+            jdbcTemplate.update("""
+                INSERT INTO list (id, name, created_at, updated_at)
+                VALUES (?, ?, COALESCE((SELECT created_at FROM list WHERE id = ?), ?), ?)
+                ON CONFLICT (id) DO UPDATE SET
+                  name = EXCLUDED.name,
+                  updated_at = EXCLUDED.updated_at
+                """,
+                list.id(),
+                list.name(),
+                list.id(),
+                OffsetDateTime.now(ZoneOffset.UTC),
+                list.updatedAt()
+            );
+        }
+        return conflicts;
+    }
+
+    private int applyListItems(List<SyncListItem> listItems) {
+        if (listItems == null) {
+            return 0;
+        }
+        int conflicts = 0;
+        for (SyncListItem item : listItems) {
+            if (item.listId() == null || item.itemId() == null || item.updatedAt() == null) {
+                continue;
+            }
+            OffsetDateTime localUpdated = findListItemUpdatedAt(item.listId(), item.itemId());
+            if (localUpdated != null && !item.updatedAt().isAfter(localUpdated)) {
+                conflicts++;
+                continue;
+            }
+            jdbcTemplate.update("""
+                INSERT INTO list_item (list_id, item_id, position, priority, updated_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT (list_id, item_id) DO UPDATE SET
+                  position = EXCLUDED.position,
+                  priority = EXCLUDED.priority,
+                  updated_at = EXCLUDED.updated_at
+                """,
+                item.listId(), item.itemId(), item.position(), item.priority(), item.updatedAt());
+        }
+        return conflicts;
+    }
+
+    private int applyProgress(List<SyncProgressLog> logs) {
+        if (logs == null) {
+            return 0;
+        }
+        int conflicts = 0;
+        for (SyncProgressLog log : logs) {
+            if (log.id() == null || log.updatedAt() == null) {
+                continue;
+            }
+            OffsetDateTime localUpdated = findUpdatedAt("progress_log", "id", log.id());
+            if (localUpdated != null && !log.updatedAt().isAfter(localUpdated)) {
+                conflicts++;
+                continue;
+            }
+            jdbcTemplate.update("""
+                INSERT INTO progress_log (id, item_id, log_date, duration_minutes, page_or_minute, percent, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT (id) DO UPDATE SET
+                  item_id = EXCLUDED.item_id,
+                  log_date = EXCLUDED.log_date,
+                  duration_minutes = EXCLUDED.duration_minutes,
+                  page_or_minute = EXCLUDED.page_or_minute,
+                  percent = EXCLUDED.percent,
+                  updated_at = EXCLUDED.updated_at
+                """,
+                log.id(), log.itemId(), log.date(), log.durationMinutes(), log.pageOrMinute(), log.percent(), log.updatedAt());
+        }
+        return conflicts;
+    }
+
+    private int applyLoans(List<SyncLoan> loans) {
+        if (loans == null) {
+            return 0;
+        }
+        int conflicts = 0;
+        for (SyncLoan loan : loans) {
+            if (loan.id() == null || loan.updatedAt() == null) {
+                continue;
+            }
+            OffsetDateTime localUpdated = findUpdatedAt("loan", "id", loan.id());
+            if (localUpdated != null && !loan.updatedAt().isAfter(localUpdated)) {
+                conflicts++;
+                continue;
+            }
+            jdbcTemplate.update("""
+                INSERT INTO loan (id, item_id, to_whom, start_date, due_date, returned_at, status, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT (id) DO UPDATE SET
+                  item_id = EXCLUDED.item_id,
+                  to_whom = EXCLUDED.to_whom,
+                  start_date = EXCLUDED.start_date,
+                  due_date = EXCLUDED.due_date,
+                  returned_at = EXCLUDED.returned_at,
+                  status = EXCLUDED.status,
+                  updated_at = EXCLUDED.updated_at
+                """,
+                loan.id(), loan.itemId(), loan.toWhom(), loan.startDate(), loan.dueDate(), loan.returnedAt(), loan.status().name(), loan.updatedAt());
+        }
+        return conflicts;
+    }
+
+    private int applyExternalLinks(List<SyncExternalLink> links) {
+        if (links == null) {
+            return 0;
+        }
+        int conflicts = 0;
+        for (SyncExternalLink link : links) {
+            if (link.id() == null || link.updatedAt() == null) {
+                continue;
+            }
+            OffsetDateTime localUpdated = findUpdatedAt("external_link", "id", link.id());
+            if (localUpdated != null && !link.updatedAt().isAfter(localUpdated)) {
+                conflicts++;
+                continue;
+            }
+            jdbcTemplate.update("""
+                INSERT INTO external_link (id, item_id, provider, external_id, url, rating, summary, last_sync_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT (id) DO UPDATE SET
+                  item_id = EXCLUDED.item_id,
+                  provider = EXCLUDED.provider,
+                  external_id = EXCLUDED.external_id,
+                  url = EXCLUDED.url,
+                  rating = EXCLUDED.rating,
+                  summary = EXCLUDED.summary,
+                  last_sync_at = EXCLUDED.last_sync_at,
+                  updated_at = EXCLUDED.updated_at
+                """,
+                link.id(), link.itemId(), link.provider(), link.externalId(), link.url(), link.rating(), link.summary(), link.lastSyncAt(), link.updatedAt());
+        }
+        return conflicts;
+    }
+
+    private int applyDeletes(List<SyncDelete> deletes) {
+        if (deletes == null) {
+            return 0;
+        }
+        int conflicts = 0;
+        for (SyncDelete delete : deletes) {
+            if (delete.entityType() == null || delete.entityKey() == null || delete.deletedAt() == null) {
+                continue;
+            }
+            if ("LIST".equalsIgnoreCase(delete.entityType())) {
+                OffsetDateTime localUpdated = findUpdatedAt("list", "id", Long.valueOf(delete.entityKey()));
+                if (localUpdated != null && localUpdated.isAfter(delete.deletedAt())) {
+                    conflicts++;
+                    continue;
+                }
+                jdbcTemplate.update("DELETE FROM list_item WHERE list_id = ?", Long.valueOf(delete.entityKey()));
+                jdbcTemplate.update("DELETE FROM list WHERE id = ?", Long.valueOf(delete.entityKey()));
+            }
+            if ("LIST_ITEM".equalsIgnoreCase(delete.entityType())) {
+                String[] parts = delete.entityKey().split(":");
+                if (parts.length != 2) {
+                    continue;
+                }
+                Long listId = Long.valueOf(parts[0]);
+                Long itemId = Long.valueOf(parts[1]);
+                OffsetDateTime localUpdated = findListItemUpdatedAt(listId, itemId);
+                if (localUpdated != null && localUpdated.isAfter(delete.deletedAt())) {
+                    conflicts++;
+                    continue;
+                }
+                jdbcTemplate.update("DELETE FROM list_item WHERE list_id = ? AND item_id = ?", listId, itemId);
+            }
+        }
+        return conflicts;
+    }
+
+    private OffsetDateTime findUpdatedAt(String table, String idColumn, Long id) {
+        try {
+            return jdbcTemplate.queryForObject(
+                "SELECT updated_at FROM " + table + " WHERE " + idColumn + " = ?",
+                OffsetDateTime.class,
+                id
+            );
+        } catch (Exception ex) {
+            return null;
+        }
+    }
+
+    private OffsetDateTime findListItemUpdatedAt(Long listId, Long itemId) {
+        try {
+            return jdbcTemplate.queryForObject(
+                "SELECT updated_at FROM list_item WHERE list_id = ? AND item_id = ?",
+                OffsetDateTime.class,
+                listId,
+                itemId
+            );
+        } catch (Exception ex) {
+            return null;
+        }
+    }
+
+    private void upsertItem(SyncItem item) {
+        jdbcTemplate.update("""
+            INSERT INTO media_item (id, type, title, year, condition, location, status, deleted_at, created_at, updated_at,
+              progress_percent, progress_value, total_value)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (id) DO UPDATE SET
+              type = EXCLUDED.type,
+              title = EXCLUDED.title,
+              year = EXCLUDED.year,
+              condition = EXCLUDED.condition,
+              location = EXCLUDED.location,
+              status = EXCLUDED.status,
+              deleted_at = EXCLUDED.deleted_at,
+              updated_at = EXCLUDED.updated_at,
+              progress_percent = EXCLUDED.progress_percent,
+              progress_value = EXCLUDED.progress_value,
+              total_value = EXCLUDED.total_value
+            """,
+            item.id(), item.type().name(), item.title(), item.year(), item.condition(), item.location(),
+            item.status().name(), item.deletedAt(), item.createdAt() == null ? OffsetDateTime.now(ZoneOffset.UTC) : item.createdAt(),
+            item.updatedAt(), item.progressPercent(), item.progressValue(), item.totalValue());
+
+        if (item.bookInfo() != null) {
+            upsertBookInfo(item.id(), item.bookInfo());
+            jdbcTemplate.update("DELETE FROM dvd_info WHERE item_id = ?", item.id());
+            jdbcTemplate.update("DELETE FROM dvd_cast WHERE item_id = ?", item.id());
+        } else if (item.dvdInfo() != null) {
+            upsertDvdInfo(item.id(), item.dvdInfo());
+            jdbcTemplate.update("DELETE FROM book_info WHERE item_id = ?", item.id());
+            jdbcTemplate.update("DELETE FROM book_author WHERE item_id = ?", item.id());
+        }
+        upsertTags(item.id(), item.tags());
+    }
+
+    private void upsertBookInfo(Long itemId, SyncBookInfo info) {
+        jdbcTemplate.update("""
+            INSERT INTO book_info (item_id, isbn, pages, publisher, authors_text)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT (item_id) DO UPDATE SET
+              isbn = EXCLUDED.isbn,
+              pages = EXCLUDED.pages,
+              publisher = EXCLUDED.publisher,
+              authors_text = EXCLUDED.authors_text
+            """, itemId, info.isbn(), info.pages(), info.publisher(), join(info.authors()));
+        jdbcTemplate.update("DELETE FROM book_author WHERE item_id = ?", itemId);
+        if (info.authors() != null) {
+            for (String author : info.authors()) {
+                jdbcTemplate.update("INSERT INTO book_author (item_id, author) VALUES (?, ?)", itemId, author);
+            }
+        }
+    }
+
+    private void upsertDvdInfo(Long itemId, SyncDvdInfo info) {
+        jdbcTemplate.update("""
+            INSERT INTO dvd_info (item_id, runtime, director)
+            VALUES (?, ?, ?)
+            ON CONFLICT (item_id) DO UPDATE SET
+              runtime = EXCLUDED.runtime,
+              director = EXCLUDED.director
+            """, itemId, info.runtime(), info.director());
+        jdbcTemplate.update("DELETE FROM dvd_cast WHERE item_id = ?", itemId);
+        if (info.cast() != null) {
+            for (String member : info.cast()) {
+                jdbcTemplate.update("INSERT INTO dvd_cast (item_id, member) VALUES (?, ?)", itemId, member);
+            }
+        }
+    }
+
+    private void upsertTags(Long itemId, List<String> tags) {
+        jdbcTemplate.update("DELETE FROM media_item_tag WHERE item_id = ?", itemId);
+        if (tags == null) {
+            return;
+        }
+        for (String name : tags) {
+            if (name == null || name.isBlank()) {
+                continue;
+            }
+            Long tagId = jdbcTemplate.queryForObject(
+                "INSERT INTO tag (name) VALUES (?) ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name RETURNING id",
+                Long.class, name
+            );
+            jdbcTemplate.update("""
+                INSERT INTO media_item_tag (item_id, tag_id)
+                VALUES (?, ?)
+                ON CONFLICT DO NOTHING
+                """, itemId, tagId);
+        }
+    }
+
+    private String join(List<String> values) {
+        if (values == null || values.isEmpty()) {
+            return null;
+        }
+        return String.join(", ", values);
+    }
+
+    private void updateSequences() {
+        jdbcTemplate.execute("SELECT setval(pg_get_serial_sequence('media_item','id'), COALESCE(MAX(id), 1)) FROM media_item");
+        jdbcTemplate.execute("SELECT setval(pg_get_serial_sequence('list','id'), COALESCE(MAX(id), 1)) FROM list");
+        jdbcTemplate.execute("SELECT setval(pg_get_serial_sequence('progress_log','id'), COALESCE(MAX(id), 1)) FROM progress_log");
+        jdbcTemplate.execute("SELECT setval(pg_get_serial_sequence('loan','id'), COALESCE(MAX(id), 1)) FROM loan");
+        jdbcTemplate.execute("SELECT setval(pg_get_serial_sequence('external_link','id'), COALESCE(MAX(id), 1)) FROM external_link");
+        jdbcTemplate.execute("SELECT setval(pg_get_serial_sequence('tag','id'), COALESCE(MAX(id), 1)) FROM tag");
     }
 }

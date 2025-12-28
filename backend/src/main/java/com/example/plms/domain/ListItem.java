@@ -6,7 +6,11 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.MapsId;
+import jakarta.persistence.PrePersist;
+import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 
 @Entity
 @Table(name = "list_item")
@@ -30,6 +34,9 @@ public class ListItem {
     @Column(nullable = false)
     private Integer priority = 0;
 
+    @Column(nullable = false)
+    private OffsetDateTime updatedAt;
+
     protected ListItem() {
     }
 
@@ -39,6 +46,16 @@ public class ListItem {
         this.position = position;
         this.priority = priority == null ? 0 : priority;
         this.id = new ListItemId(list.getId(), item.getId());
+    }
+
+    @PrePersist
+    void onCreate() {
+        updatedAt = OffsetDateTime.now(ZoneOffset.UTC);
+    }
+
+    @PreUpdate
+    void onUpdate() {
+        updatedAt = OffsetDateTime.now(ZoneOffset.UTC);
     }
 
     public ListItemId getId() {
@@ -67,5 +84,13 @@ public class ListItem {
 
     public void setPriority(Integer priority) {
         this.priority = priority;
+    }
+
+    public OffsetDateTime getUpdatedAt() {
+        return updatedAt;
+    }
+
+    public void setUpdatedAt(OffsetDateTime updatedAt) {
+        this.updatedAt = updatedAt;
     }
 }

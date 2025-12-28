@@ -7,8 +7,12 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
+import jakarta.persistence.PrePersist;
+import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 import java.time.LocalDate;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 
 @Entity
 @Table(name = "progress_log")
@@ -33,6 +37,9 @@ public class ProgressLog {
     @Column(nullable = false)
     private Integer percent;
 
+    @Column(nullable = false)
+    private OffsetDateTime updatedAt;
+
     protected ProgressLog() {
     }
 
@@ -42,6 +49,16 @@ public class ProgressLog {
         this.durationMinutes = durationMinutes;
         this.pageOrMinute = pageOrMinute;
         this.percent = percent;
+    }
+
+    @PrePersist
+    void onCreate() {
+        updatedAt = OffsetDateTime.now(ZoneOffset.UTC);
+    }
+
+    @PreUpdate
+    void onUpdate() {
+        updatedAt = OffsetDateTime.now(ZoneOffset.UTC);
     }
 
     public Long getId() {
@@ -66,5 +83,13 @@ public class ProgressLog {
 
     public Integer getPercent() {
         return percent;
+    }
+
+    public OffsetDateTime getUpdatedAt() {
+        return updatedAt;
+    }
+
+    public void setUpdatedAt(OffsetDateTime updatedAt) {
+        this.updatedAt = updatedAt;
     }
 }

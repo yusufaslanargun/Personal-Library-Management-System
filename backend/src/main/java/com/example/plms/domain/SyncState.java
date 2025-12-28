@@ -22,6 +22,11 @@ public class SyncState {
     @Column(nullable = false)
     private Integer lastConflictCount = 0;
 
+    private String clientId;
+
+    @Column(nullable = false)
+    private boolean needsFullSync = false;
+
     @Column(nullable = false)
     private OffsetDateTime updatedAt;
 
@@ -61,6 +66,22 @@ public class SyncState {
 
     public void setLastConflictCount(Integer lastConflictCount) {
         this.lastConflictCount = lastConflictCount;
+    }
+
+    public String getClientId() {
+        return clientId;
+    }
+
+    public void setClientId(String clientId) {
+        this.clientId = clientId;
+    }
+
+    public boolean isNeedsFullSync() {
+        return needsFullSync;
+    }
+
+    public void setNeedsFullSync(boolean needsFullSync) {
+        this.needsFullSync = needsFullSync;
     }
 
     public OffsetDateTime getUpdatedAt() {

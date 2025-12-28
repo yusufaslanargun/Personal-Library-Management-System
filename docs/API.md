@@ -2,7 +2,14 @@
 
 Swagger UI: `http://localhost:8080/swagger-ui/index.html`
 
+All endpoints (except `/auth/*` and `/sync/remote`) require `Authorization: Bearer <token>`.
+
 ## Core Endpoints
+
+Auth
+- `POST /auth/register`
+- `POST /auth/login`
+- `GET /auth/me`
 
 Items
 - `GET /items`
@@ -51,6 +58,7 @@ Sync
 - `POST /sync/enable`
 - `POST /sync/run`
 - `GET /sync/status`
+- `POST /sync/remote` (cloud endpoint, API key)
 
 Health
 - `GET /actuator/health`

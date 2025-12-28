@@ -7,9 +7,12 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
+import jakarta.persistence.PrePersist;
+import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 
 @Entity
 @Table(name = "external_link")
@@ -35,12 +38,25 @@ public class ExternalLink {
 
     private OffsetDateTime lastSyncAt;
 
+    @Column(nullable = false)
+    private OffsetDateTime updatedAt;
+
     protected ExternalLink() {
     }
 
     public ExternalLink(MediaItem item, String provider) {
         this.item = item;
         this.provider = provider;
+    }
+
+    @PrePersist
+    void onCreate() {
+        updatedAt = OffsetDateTime.now(ZoneOffset.UTC);
+    }
+
+    @PreUpdate
+    void onUpdate() {
+        updatedAt = OffsetDateTime.now(ZoneOffset.UTC);
     }
 
     public Long getId() {
@@ -101,5 +117,13 @@ public class ExternalLink {
 
     public void setLastSyncAt(OffsetDateTime lastSyncAt) {
         this.lastSyncAt = lastSyncAt;
+    }
+
+    public OffsetDateTime getUpdatedAt() {
+        return updatedAt;
+    }
+
+    public void setUpdatedAt(OffsetDateTime updatedAt) {
+        this.updatedAt = updatedAt;
     }
 }

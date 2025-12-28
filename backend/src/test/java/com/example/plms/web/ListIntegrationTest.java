@@ -2,6 +2,8 @@ package com.example.plms.web;
 
 import com.example.plms.domain.MediaType;
 import com.example.plms.web.dto.BookInfoRequest;
+import com.example.plms.web.dto.AuthRegisterRequest;
+import com.example.plms.web.dto.AuthResponse;
 import com.example.plms.web.dto.ItemCreateRequest;
 import com.example.plms.web.dto.ItemResponse;
 import com.example.plms.web.dto.ListItemRequest;
@@ -13,7 +15,10 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -42,6 +47,9 @@ class ListIntegrationTest {
 
     @Test
     void reordersListItems() {
+        String token = registerAndLogin();
+        HttpHeaders headers = authHeaders(token);
+
         ItemCreateRequest request = new ItemCreateRequest(
             MediaType.BOOK,
             "List Book",
@@ -52,19 +60,40 @@ class ListIntegrationTest {
             new BookInfoRequest("111", 100, "Publisher", List.of("Author")),
             null
         );
-        ItemResponse item = restTemplate.postForEntity("/items", request, ItemResponse.class).getBody();
+        ItemResponse item = restTemplate.exchange("/items", HttpMethod.POST, new HttpEntity<>(request, headers), ItemResponse.class).getBody();
         assertNotNull(item);
 
-        ResponseEntity<MediaListResponse> listResponse = restTemplate.postForEntity("/lists", new ListRequest("My List"), MediaListResponse.class);
+        ResponseEntity<MediaListResponse> listResponse = restTemplate.exchange(
+            "/lists", HttpMethod.POST, new HttpEntity<>(new ListRequest("My List"), headers), MediaListResponse.class);
         assertEquals(HttpStatus.CREATED, listResponse.getStatusCode());
         MediaListResponse list = listResponse.getBody();
         assertNotNull(list);
 
-        restTemplate.postForEntity("/lists/" + list.id() + "/items", new ListItemRequest(item.id(), 0), MediaListResponse.class);
-        MediaListResponse updated = restTemplate.getForObject("/lists/" + list.id(), MediaListResponse.class);
+        restTemplate.exchange(
+            "/lists/" + list.id() + "/items", HttpMethod.POST, new HttpEntity<>(new ListItemRequest(item.id(), 0), headers),
+            MediaListResponse.class);
+        MediaListResponse updated = restTemplate.exchange(
+            "/lists/" + list.id(), HttpMethod.GET, new HttpEntity<>(headers), MediaListResponse.class).getBody();
         assertNotNull(updated);
         assertEquals(1, updated.items().size());
 
-        restTemplate.postForEntity("/lists/" + list.id() + "/items/reorder", new ReorderRequest(List.of(item.id())), MediaListResponse.class);
+        restTemplate.exchange(
+            "/lists/" + list.id() + "/items/reorder", HttpMethod.POST,
+            new HttpEntity<>(new ReorderRequest(List.of(item.id())), headers),
+            MediaListResponse.class);
+    }
+
+    private String registerAndLogin() {
+        AuthRegisterRequest request = new AuthRegisterRequest("list@example.com", "password123", "List Tester");
+        ResponseEntity<AuthResponse> response = restTemplate.postForEntity("/auth/register", request, AuthResponse.class);
+        assertEquals(HttpStatus.CREATED, response.getStatusCode());
+        assertNotNull(response.getBody());
+        return response.getBody().token();
+    }
+
+    private HttpHeaders authHeaders(String token) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(token);
+        return headers;
     }
 }

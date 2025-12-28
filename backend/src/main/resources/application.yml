@@ -32,6 +32,9 @@ management:
       show-details: always
 
 plms:
+  auth:
+    jwtSecret: ${PLMS_JWT_SECRET:change-me-change-me-change-me-change-me}
+    tokenTtlHours: ${PLMS_JWT_TTL_HOURS:12}
   external:
     googleBooks:
       baseUrl: https://www.googleapis.com/books/v1
@@ -54,3 +57,4 @@ plms:
     apiKey: ${PLMS_SYNC_API_KEY:}
     retryMax: 3
     timeoutMs: 4000
+    flushOnShutdown: ${PLMS_SYNC_FLUSH_ON_SHUTDOWN:true}
