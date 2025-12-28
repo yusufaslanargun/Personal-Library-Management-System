@@ -1,0 +1,56 @@
+server:
+  port: 8080
+
+spring:
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/plms}
+    username: ${SPRING_DATASOURCE_USERNAME:plms}
+    password: ${SPRING_DATASOURCE_PASSWORD:plms}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+
+flyway:
+  enabled: true
+  locations: classpath:db/migration
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always
+
+plms:
+  external:
+    googleBooks:
+      baseUrl: https://www.googleapis.com/books/v1
+      apiKey: ${GOOGLE_BOOKS_API_KEY:}
+      timeoutMs: 4000
+      mock: ${PLMS_EXTERNAL_MOCK:false}
+    openLibrary:
+      baseUrl: https://openlibrary.org
+      apiKey: ${OPEN_LIBRARY_API_KEY:}
+      timeoutMs: 4000
+      mock: ${PLMS_EXTERNAL_MOCK:false}
+    omdb:
+      baseUrl: https://www.omdbapi.com
+      apiKey: ${OMDB_API_KEY:}
+      timeoutMs: 4000
+      mock: ${PLMS_EXTERNAL_MOCK:false}
+  sync:
+    enabled: ${PLMS_SYNC_ENABLED:false}
+    endpoint: ${PLMS_SYNC_ENDPOINT:}
+    apiKey: ${PLMS_SYNC_API_KEY:}
+    retryMax: 3
+    timeoutMs: 4000

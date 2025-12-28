@@ -1,0 +1,411 @@
+
+
+SOFTWARE DESIGN DOCUMENT
+for
+Personal Library Management System (PLMS)
+
+
+Issue No: 1.0
+Issue Date: Dec 2025
+
+
+
+Prepared by
+Yiğit Doğan Aladağ
+Ömer Fehmi Çakıcı
+Muhammet Furkan Yılgın
+Yusuf Aslanargun
+
+Table of Contents
+1  Introduction	2
+1.1  Purpose of the system	2
+1.2  Design goals	2
+1.3  Definitions, acronyms, and abbreviations	2
+1.4  References	3
+1.5  Overview	3
+2  Current software architecture	3
+3  Proposed software architecture	3
+3.1  Overview	3
+3.2  Subsystem decomposition	4
+3.3  Hardware/software mapping	6
+3.4  Persistent data management	6
+3.5  Access control and security	8
+3.6  Global software control	9
+3.7  Boundary conditions	9
+4  Subsystem services	10
+4.1  Inventory Subsystem	10
+4.2  External Integration Subsystem	10
+4.3  Lists Subsystem	11
+4.4  Progress Subsystem	11
+4.5  Loan Subsystem	11
+4.6  Data I/O & Sync Subsystem	12
+5  Glossary of Terms	12
+6  Traceability	13
+
+
+
+1  Introduction
+This Software Design Document (SDD) describes the proposed software architecture of the Personal Library Management System (PLMS). It transforms the functional and nonfunctional requirements defined in the Requirements Analysis Document (RAD) into an initial system-level design: subsystem decomposition, hardware/software mapping, data management, access control, global control, and boundary conditions.
+1.1  Purpose of the system
+PLMS is conceived as a single-user application that helps an individual organize and maintain a private collection of books and DVDs, with features such as cataloging, search/filtering, lists, progress tracking, loan tracking, and import/export. Optional cloud sync allows the same user to access the collection across devices.
+1.2  Design goals
+The design is driven by the quality attributes in the RAD:
+Usability: Low-effort flows (e.g., Add via ISBN in < 3 steps; progress entry in < 2 steps) with clear feedback.
+Performance: Search over up to 5,000 items should respond within 1.5 seconds (95th percentile).
+Reliability: No data loss in normal operation; external API failures handled gracefully without blocking local operations.
+Supportability/Maintainability: Modular subsystems and clear interfaces to simplify future changes (providers, formats, features).
+1.3  Definitions, acronyms, and abbreviations
+Term
+Definition
+PLMS
+Personal Library Management System
+RAD
+Requirements Analysis Document
+SDD
+Software Design Document
+FR / NFR
+Functional / Nonfunctional Requirement
+CRUD
+Create / Read / Update / Delete
+UML
+Unified Modeling Language
+MediaItem
+A record representing a Book or DVD in the collection
+External Provider
+Online metadata source queried during Add via ISBN (e.g., Google Books, OMDb)
+1.4  References
+Personal Library Management System – RAD.docx
+CSE443 Assignment #2 (Software Design Document)
+CSE443 - SDD_Template.docx
+Project GitHub repository (as provided by the team)
+1.5  Overview
+Section 2 summarizes the current (non-existent) architecture. Section 3 presents the proposed architecture, including subsystem decomposition with UML class-level diagrams, hardware/software mapping with a UML deployment diagram, persistent data management, access control/security, global control mechanisms, and boundary conditions. Section 4 lists subsystem services. Sections 5 and 6 provide a glossary and traceability to the RAD.
+2  Current software architecture
+There is no dedicated software system being replaced. The user currently relies on memory, spreadsheets, or ad-hoc notes. Common issues of such 'non-systems' include inconsistent metadata, duplicate entries, poor searchability, untracked progress and loans, and a high risk of data loss (no structured backups).
+Similar personal catalog applications commonly use a layered architecture with a presentation layer, application services, a persistence layer, and optional integration with external metadata providers. PLMS adopts this approach to meet the course design goals.
+3  Proposed software architecture
+3.1  Overview
+PLMS uses a layered, three-tier architecture typical for modern applications: Presentation (Web UI), Application Logic (PLMS Core), and Data Persistence (Database). Each use case is implemented as an HTTP request handled by a controller that delegates to subsystem services, which encapsulate domain logic and interact with repositories for persistent data.
+Primary architectural components:
+Client (Web UI): Responsible for user interaction, validation hints, and rendering views.
+PLMS Core (Application Server): Implements subsystem services and orchestrates domain operations.
+Data Persistence: Stores items, lists, progress logs, loans, and external mappings reliably.
+External Provider APIs (optional): Provide metadata lookups for ISBN/barcode or film identifiers.
+Cloud Sync Backend (optional): Stores user account and enables multi-device synchronization.
+
+
+Figure 3-1. Global Software Control (Request/Response Flow)
+3.2  Subsystem decomposition
+The PLMS Core is decomposed into specialized subsystems. Each subsystem owns a focused set of responsibilities aligned with the RAD functional requirements and use cases, and exposes a stable service interface to the presentation layer.
+Subsystem
+Responsibility (FRs)
+Design notes
+Inventory
+FR-02, FR-03, FR-04, FR-05
+Owns MediaItem lifecycle, search, and facets. Optimized indexes support performance goals.
+External Integration
+FR-01, FR-06, FR-07, FR-08, FR-09
+Isolates provider APIs; supports retries and safe updates to mapped fields.
+Lists
+FR-10, FR-11, FR-12
+Manages List/ListItem with persistent ordering; prevents duplicates per list.
+Progress
+FR-13, FR-14, FR-15, FR-16
+Appends ProgressLog entries; computes and updates progress percent.
+Loans
+FR-17, FR-18
+Manages Loan lifecycle and overdue calculation; enforces one active loan per item.
+Data I/O & Sync
+FR-19, FR-20
+Import/export validation and optional cloud sync; resolves conflicts with last-write-wins plus notification.
+
+
+Figure 3-2. Subsystem decomposition (UML class-level view)
+3.3  Hardware/software mapping
+PLMS can run as a web application. The Web UI executes in the user's browser. The application server hosts the PLMS Core API and connects to a database. For ISBN lookup and metadata enrichment, the server communicates with external provider APIs. If cloud sync is enabled, a backend store is used to synchronize the same user's data across devices.
+
+
+Figure 3-3. UML Deployment Diagram (hardware/software mapping)
+Key mapping considerations:
+Security: all client-server communication uses HTTPS; API keys are stored server-side.
+Scalability: single-user scope keeps concurrency low, but the architecture supports deployment as a single node or separated nodes (app + DB).
+Reuse: external provider clients are isolated to allow swapping providers without affecting core subsystems.
+3.4  Persistent data management
+Persistent data is defined by the RAD conceptual domain model (MediaItem, BookInfo/DvdInfo, ExternalLink, List/ListItem, ProgressLog, Loan). A relational database (e.g., SQLite for local-only, PostgreSQL for cloud deployment) is suitable due to structured relationships, integrity constraints, and indexing needs.
+Main persistent entities and key constraints:
+Entity
+Key fields
+Constraints / notes
+MediaItem
+id, type, title, year, condition, location, status
+Soft delete via isArchived flag; indexed title/type/year; status reflects loan state.
+BookInfo
+itemId (FK), isbn, pages, publisher
+1:1 with MediaItem when type=Book; isbn unique (optional).
+DvdInfo
+itemId (FK), runtime, director
+1:1 with MediaItem when type=DVD.
+ExternalLink
+id, itemId (FK), provider, externalId, url, lastSyncAt
+Unique (provider, externalId); supports refresh of mapped fields.
+List
+id, name
+Name unique per user; delete requires confirmation if non-empty.
+ListItem
+listId (FK), itemId (FK), position, priority
+Unique (listId, itemId); position indexed for reorder.
+ProgressLog
+id, itemId (FK), date, value, percent
+Append-only; can compute last progress quickly using index (itemId, date).
+Loan
+id, itemId (FK), toWhom, startDate, dueDate, returnedAt, status
+At most one active loan per item (enforced by unique partial index or transaction check).
+
+Data management infrastructure and encapsulation:
+Repositories/DAOs encapsulate database access (CRUD + queries) per aggregate root (MediaItem, List, Loan, ProgressLog).
+Search is supported by DB indexes (and optionally a small full-text index) to meet NFR-P1.
+Import validates schema before writing; all writes occur in a transaction to avoid partial imports.
+Export produces CSV/JSON snapshots including items, lists, progress logs, and loans.
+3.5  Access control and security
+PLMS is single-user. If cloud sync is not used, the application can run without authentication on the local machine. If cloud sync is enabled, the user must authenticate and all requests are associated with that user account.
+Access matrix (single role: Owner/User):
+
+Resource
+Create
+Read
+Update
+Delete
+Notes
+MediaItem
+Y
+Y
+Y
+Soft
+Delete is soft-delete by default; restore from Trash.
+List / ListItem
+Y
+Y
+Y
+Y
+List delete requires confirmation if non-empty.
+ProgressLog
+Y
+Y
+Limited
+N
+Logs are append-only; editing is optional and limited.
+Loan
+Y
+Y
+Y
+N
+Loans are preserved as history; return closes active loan.
+Import/Export
+Y
+Y
+N
+N
+Import creates/updates; export reads all data.
+ExternalLink
+Y
+Y
+Y
+Y
+Created via provider lookup; refresh requires confirmation.
+
+
+Security mechanisms:
+Authentication (cloud sync): username/email + password; passwords stored as salted hashes.
+Transport security: HTTPS/TLS for all network communication (client-server, server-provider, server-sync).
+Secrets management: external provider API keys stored server-side; never exposed to the client.
+Input validation: all user inputs validated in UI and server; import validates schema and rejects malformed records.
+Privacy: only metadata is stored; no copyrighted content is stored in the system.
+3.6  Global software control
+PLMS uses a request-driven control model. The user initiates an action in the UI, which sends an HTTP request to the application server. A controller validates the request, delegates to a subsystem service, and returns a response DTO. Subsystems synchronize through the database (transactions) and explicit service calls when needed.
+Synchronization and concurrency considerations:
+Single-user scope keeps contention low, but DB transactions ensure atomicity for critical invariants.
+The invariant 'one active loan per item' is enforced atomically (transaction check or unique partial index).
+Optional cloud sync uses last-write-wins for conflicts, while preserving a conflict report for the user.
+3.7  Boundary conditions
+Boundary conditions describe start-up, shutdown, and error behavior.
+Start-up:
+Initialize configuration (provider endpoints/keys, DB connection) and create required indexes.
+If cloud sync is enabled, perform initial sync (download remote state, then reconcile).
+Shutdown:
+Commit or rollback any pending transactions; close DB connections gracefully.
+Flush logs and queued sync operations (if any) to avoid data loss.
+Error behavior:
+External provider failure: show error banner, allow retry, and allow manual entry without blocking other features.
+Validation error: reject invalid fields with clear messages (e.g., dueDate must be >= startDate; progress in valid range).
+Import error: reject file or invalid rows; report summary; no partial writes (transaction rollback).
+Persistence error: surface a generic error and preserve the user's input for retry; avoid silent failure.
+Sync conflict: detect concurrent edits across devices and show conflict notice (last-write-wins applied).
+4  Subsystem services
+This section summarizes the main services offered by each subsystem. These operations form the service interface used by the Presentation Layer.
+4.1  Inventory Subsystem
+Operation
+Inputs
+Outputs
+Related FRs
+addItemManual(title, type, year, ...)
+Basic metadata
+MediaItem(id)
+FR-02
+updateItem(itemId, fields)
+itemId + changes
+Updated MediaItem
+FR-03, FR-04
+softDelete(itemId)
+itemId
+Archived item
+FR-03
+restore(itemId)
+itemId
+Restored item
+FR-03
+searchAndFilter(query, facets, page)
+query + facet filters
+Paged results
+FR-05
+4.2  External Integration Subsystem
+Operation
+Inputs
+Outputs
+Related FRs
+lookupISBN(isbn)
+isbn/barcode
+Metadata candidates
+FR-01, FR-06
+attachExternalLink(itemId, provider, externalId)
+itemId + mapping
+ExternalLink
+FR-07
+refreshMetadata(itemId)
+itemId
+Field-diff preview
+FR-08
+applyMetadataUpdate(itemId, acceptedFields)
+itemId + selection
+Updated item
+FR-08, FR-09
+4.3  Lists Subsystem
+Operation
+Inputs
+Outputs
+Related FRs
+createList(name)
+name
+List(id)
+FR-10
+renameList(listId, name)
+listId + name
+Updated list
+FR-10
+deleteList(listId)
+listId
+Deleted list
+FR-10
+addItemToList(listId, itemId)
+listId + itemId
+ListItem(position)
+FR-11
+reorderList(listId, orderedItemIds)
+listId + order
+Updated order
+FR-11, FR-12
+removeItemFromList(listId, itemId)
+listId + itemId
+Removed entry
+FR-11
+4.4  Progress Subsystem
+Operation
+Inputs
+Outputs
+Related FRs
+logProgress(itemId, value, date, duration?)
+itemId + value
+ProgressLog(id) + updated percent
+FR-13–FR-16
+getHistory(itemId)
+itemId
+List<ProgressLog>
+FR-15
+4.5  Loan Subsystem
+Operation
+Inputs
+Outputs
+Related FRs
+markLoaned(itemId, toWhom, startDate, dueDate)
+loan info
+Loan(id) + status=Loaned
+FR-17
+markReturned(loanId, returnedAt)
+loanId
+Updated Loan + status=Available
+FR-18
+getOverdue(now)
+timestamp
+List<Loan>
+FR-17, FR-18
+4.6  Data I/O & Sync Subsystem
+Operation
+Inputs
+Outputs
+Related FRs
+exportData(format)
+CSV/JSON
+Export file
+FR-19
+importData(file, format)
+file
+Import summary
+FR-19
+enableCloudSync(credentials)
+login info
+Sync enabled
+FR-20
+runSync()
+none
+Sync report
+FR-20
+5  Glossary of Terms
+Term
+Definition
+Actor
+An external entity that interacts with PLMS (User, External Provider).
+Available / Loaned / Returned / Overdue
+Operational statuses of an item with respect to loans.
+Facet
+A filter dimension in search (type, author/cast, tag, year, loan status).
+ExternalLink
+Persistent mapping from a local item to a provider record (provider, externalId, url, lastSyncAt).
+Soft delete
+Reversible removal: item is hidden but can be restored.
+Progress Log
+Timestamped record of reading/viewing progress (page/minute, percent).
+6  Traceability
+Traceability from design elements to RAD requirements.
+Design element
+Related FRs
+Related NFRs
+Inventory Subsystem
+FR-02–FR-05
+NFR-P1, NFR-U4
+External Integration Subsystem
+FR-01, FR-06–FR-09
+NFR-R2, NFR-Spt3
+Lists Subsystem
+FR-10–FR-12
+NFR-Spt1
+Progress Subsystem
+FR-13–FR-16
+NFR-U2
+Loan Subsystem
+FR-17–FR-18
+NFR-R3
+Data I/O & Sync Subsystem
+FR-19–FR-20
+NFR-R1, NFR-R4
+Deployment diagram & layered architecture
+All FRs
+NFR-Spt1, NFR-R1

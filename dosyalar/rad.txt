@@ -1,0 +1,510 @@
+
+
+
+
+REQUIREMENTS ANALYSIS DOCUMENT for Personal Library Management System (PLMS)
+
+
+
+
+
+
+1.0
+07.11.2025
+
+
+
+
+Prepared by
+Yiğit Doğan Aladağ 
+Ömer Fehmi Çakıcı
+Muhammet Furkan Yılgın
+Yusuf Aslanargun
+
+TABLE OF CONTENTS
+1	Introduction	3
+1.1	Purpose of the system	3
+1.2	Scope of the system	3
+1.3	Objectives and success criteria of the project	3
+1.4	Definitions, acronyms, and abbreviations	3
+1.5	References	4
+1.6	Overview	4
+2	Current system	4
+3	Proposed system	4
+3.1	Overview	4
+3.2	Functional requirements	5
+3.3	Nonfunctional requirements	6
+3.3.1	Usability	6
+3.3.2	Reliability	6
+3.3.3	Performance	7
+3.3.4	Supportability	7
+3.3.5	Implementation	7
+3.3.6	Interface	7
+3.3.7	Packaging	7
+3.3.8	Legal	7
+3.4	System models	8
+3.4.1	Scenarios	8
+3.4.2	Use case model	8
+3.4.3	Object model	9
+3.4.4	Dynamic model	11
+3.4.5	User interface	13
+4	Glossary	14
+
+Introduction
+The Personal Library Management System (PLMS) is conceived as a single-user application that enables an individual to organize and maintain a private collection of books and DVDs. The project is motivated by the need to reduce manual effort and errors in cataloging, improve findability via search and facets, keep a reliable record of reading/viewing progress, and track loans with due/overdue awareness. This document presents PLMS at the analysis level: it declares what the system shall do and how it is structured conceptually using object-oriented modeling and UML, without prescribing implementation technologies or UI aesthetics. The intended audience includes course staff (for compliance with the template), analysts/designers (to turn requirements into design), and developers/testers (to derive verifiable test cases). The remainder of Section 1 clarifies the purpose, scope, success criteria, key terms, references, and how the document is organized.
+
+Purpose of the system
+This document defines the analysis-level requirements and conceptual object-oriented models of the Personal Library Management System (PLMS). It specifies what the system shall do and how it is structured conceptually, so that design and implementation can proceed with minimal ambiguity and rework.
+
+Scope of the system
+PLMS is a single-user application for managing a personal library of books and DVDs. In scope: item creation (manual and via ISBN), metadata enrichment from external providers, search/filter, user-defined lists, progress logging, basic loan tracking, import/export, and optional cloud sync. Out of scope: detailed UI aesthetics, concrete database schema, and technology stack decisions (these belong to design).
+
+Objectives and success criteria of the project
+	•	Accurate cataloging: Add via ISBN in ≤ 3 steps with correct metadata.
+	•	Findability: Search over ~5,000 items responds in ≤ 1.5 s (95p).
+	•	Organization: Lists with persistent ordering/priority.
+	•	Progress tracking: Entry in ≤ 2 steps, immediate visual update.
+	•	Reliability: No data loss under normal usage; graceful API error handling.
+	•	Usability: Clear validation, empty states, and error messages.
+
+Definitions, acronyms, and abbreviations
+	•	PLMS: Personal Library Management System
+	•	Item/Media Item: Book or DVD record
+	•	ISBN: International Standard Book Number
+	•	CRUD: Create/Read/Update/Delete
+	•	External Provider: Online metadata source (books/films API)
+	•	FR/NFR: Functional/Nonfunctional Requirement
+	•	UML: Unified Modeling Language
+	•	List/List Item: User-made collection and its entries
+	•	Progress Log: History of reading/viewing progress
+	•	Loan: Temporary lending of an item
+	•	Soft delete: Hidden but recoverable removal.
+
+References
+	•	Course assignment brief and required RAD template.
+	•	Public documentation of book/film metadata services.
+
+Overview
+Section 2 summarizes the current situation. Section 3 details the proposed system: overview (3.1), Functional Requirements (3.2), Nonfunctional Requirements (3.3), and System Models (3.4: scenarios, UML, UI). Section 4 provides a glossary.
+
+Current system
+There is no dedicated application. The user relies on memory and scattered notes. Consequences: slow and error-prone item entry, poor findability, no progress history, risk of duplicate purchases, and untracked loans. A structured single-user system will reduce effort, improve accuracy, and surface reminders (e.g., due/overdue loans). 
+Proposed system
+A single-user web application that centralizes personal library management for books/DVDs
+Overview
+PLMS will provide:
+	•	Inventory: Manual add/edit/delete; Add via ISBN with external metadata; tags, condition, location.
+	•	Search & filter: Full-text search + facets (type/author/cast/tag/year/loan status).
+	•	Lists: Create/rename/delete; add/remove items; reorder with persistent positions.
+	•	Progress: Log reading/viewing progress and sessions; compute percent; visualize.
+	•	Loans: Mark loaned/returned; due & overdue visibility.
+	•	Data I/O & Sync: Import/export (CSV/JSON); optional cloud sync for one user across devices.
+	•	Assumptions: Single owner; only metadata (no copyrighted content) is stored.
+Functional requirements
+Inventory & metadata
+	•	FR-01 — Add via ISBN/barcode. The system shall add items via ISBN/barcode using external metadata lookup.
+Acceptance: Given a valid ISBN, the system returns ≥1 candidate or a clear “no match” in ≤ 5 s; user can confirm a candidate; the item is created and searchable; an ExternalLink is stored.
+	•	FR-02 — Manual create. The system shall allow manual item creation (title, type [Book/DVD], year).
+Acceptance: Required fields validated; on success, item appears in inventory and search.
+	•	FR-03 — Edit & soft delete/restore. The system shall support editing and soft-deleting/restoring items.
+Acceptance: Soft-deleted items are hidden from default views but recoverable from Trash; restore returns full visibility.
+	•	FR-04 — Tags/condition/location. The system shall maintain tags, condition, and location per item.
+Acceptance: Changes persist and are visible in item detail and search facets.
+	•	FR-05 — Search & multi-facet filter. The system shall provide full-text search and multi-facet filtering. Acceptance: Filters combine with AND semantics; pagination stable; relevance sort by default. 
+External integration
+	•	FR-06 — Provider query. The system shall query at least one external provider for metadata.
+Acceptance: Queries conform to provider API; rate-limit respected; network errors surfaced to user.
+	•	FR-07 — Persist mapping. The system shall persist a link (provider, externalId, url) to the matched record.
+Acceptance: Item retains mapping across sessions; mapping visible in item detail.
+	•	FR-08 — Update mapped fields. The system shall update mapped fields when provider data changes, with confirmation.
+Acceptance: Changes previewed before apply; user can accept/skip per field.
+	•	FR-09 — Errors & retry. The system shall show clear errors and allow retry or manual add on lookup failures.
+Acceptance: Error banner shows reason; “Retry” available; “Switch to Manual” navigates to UC-02.
+Lists & organization
+	•	FR-10 — List CRUD. The system shall create, rename, and delete lists.
+Acceptance: Name validation; delete requires confirmation if non-empty.
+	•	FR-11 — Add/remove & reorder. The system shall add/remove items and reorder within lists.
+Acceptance: No duplicate entries within the same list; new order persists.
+	•	FR-12 — Persistent priority. The system shall persist per-list priority/order and show it consistently.
+Acceptance: After refresh, the same order is displayed.
+Progress tracking
+	•	FR-13 — Reading progress (books). Record page/chapter and computed percent.
+Acceptance: Percent = current/total (clamped 0–100%); invalid values rejected with message.
+	•	FR-14 — Viewing progress (DVDs). Record minute/scene and computed percent.
+Acceptance: Same as FR-13 but with runtime.
+	•	FR-15 — Session logs. Maintain date, optional duration, and value for each progress entry.
+Acceptance: New rows appear in history immediately; entries are timestamped.
+	•	FR-16 — Visual indicators. Update progress indicator instantly after save.
+Acceptance: UI reflects new percent without page reload.
+Loans & data I/O
+	•	FR-17 — Mark as loaned. Mark item as loaned with toWhom, startDate, dueDate.
+Acceptance: Status Loaned; due visible on dashboard; validation ensures dueDate ≥ startDate.
+	•	FR-18 — Mark as returned. Mark loan as returned (returnedAt) and set status.
+Acceptance: Status becomes Available; loan history preserved.
+	•	FR-19 — Import/Export. Export/import data as CSV/JSON.
+Acceptance: Export contains items/lists/progress/loans; import validates schema and shows a summary.
+	•	FR-20 — Cloud sync (optional). Single-user multi-device sync.
+Acceptance: First run performs full sync; subsequent changes propagate; conflicts resolved by last-write-wins with notice.
+Nonfunctional requirements
+Usability
+	•	NFR-U1 “Add via ISBN” completes in ≤ 3 steps. (Verification: usability test)
+	•	NFR-U2 Progress entry completes in ≤ 2 steps with immediate feedback. (Test)
+	•	NFR-U3 Clear empty states (no results, empty list) and validation messages. (Inspection)
+	•	NFR-U4 Keyboard accessibility for core actions (search, add, save). (Inspection/Test)
+
+Reliability
+	•	NFR-R1 No data loss in normal operation; autosave for critical actions. (Test)
+	•	NFR-R2 External API failures handled gracefully; local operations remain available. (Test)
+	•	NFR-R3 One active loan per item enforced. (Analysis/Test)
+	•	NFR-R4 Import validates schema; rejects malformed records. (Test)
+
+Performance
+	•	NFR-P1 Search over ≤ 5,000 items responds in ≤ 1.5 s (95p). (Measurement)
+	•	NFR-P2 Item detail (with mapping) opens in ≤ 1.0 s (95p). (Measurement)
+	•	NFR-P3 UI input remains responsive (≥ 55 FPS) during normal interactions. (Measurement)
+
+Supportability
+	•	NFR-Spt1 Modular components (inventory, metadata, lists, progress, loans). (Inspection)
+	•	NFR-Spt2 Logging (INFO/WARN/ERROR) and minimal health diagnostics. (Inspection)
+	•	NFR-Spt3 Provider endpoint & API key configurable without code change. (Inspection)
+
+Implementation
+	•	Tech-agnostic at analysis level; any stack satisfying FR/NFR is acceptable.
+	•	Local storage permitted; optional cloud sync; offline queue for pending sync (if implemented).
+
+Interface
+	•	User interface: Desktop-first responsive web UI; consistent terminology; accessible controls.
+	•	External interfaces: JSON/REST book/film metadata API; secure API key storage; rate-limit/error handling.
+
+Packaging
+The RAD will be delivered as a single, self-contained Word document (.docx).
+
+Legal
+	•	Only metadata is stored from providers; no copyrighted content.
+	•	Provider Terms of Service respected; user privacy preserved.
+
+
+
+System models
+
+Scenarios
+
+Use Case
+Scenario
+UC-01 Add Item via ISBN/Barcode
+Scenario name: addItemViaScan
+
+Participating actor instances: Sarah:User, plmsApp:PLMS, googleBooks:ExternalAPIService
+
+Flow of events:
+
+1. Sarah just bought a new book, "Dune."
+
+2. She opens the plmsApp on her mobile phone.
+
+3. Sarah taps the "Add Item" button and selects the "Scan Barcode/ISBN" option.
+
+4. The plmsApp activates her phone's camera.
+
+5. Sarah points the camera at the ISBN barcode on the back of the book.
+
+6. The plmsApp captures the ISBN and sends a request to the googleBooks API.
+
+7. The googleBooks API finds the book and returns its metadata: Title ("Dune"), Author ("Frank Herbert"), summary, and cover art.
+
+8. The plmsApp displays the fetched information to Sarah for confirmation.
+
+	•	Sarah confirms the details are correct, and the book is added to her library inventory.
+
+
+
+UC-02 Manual Add/Edit/Delete Item
+Scenario name: maintainCollectionIntegrity
+
+Participating actor instances: mark:User, plmsApp:PLMS
+
+Flow of events:
+
+1. Mark is reviewing his library on his plmsApp desktop application.
+
+2. He notices his old copy of "The Shining" is listed in "Good" condition, but he remembers its cover is torn.
+
+3. He finds the item in his inventory, right-clicks, and selects "Update".
+
+4. He navigates to the "Condition" field and changes the value from "Good" to "Damaged". He saves the change.
+
+5. Later, Mark decides to donate a DVD he no longer wants.
+
+6. He finds the DVD ("My Big Fat Greek Wedding") in his inventory.
+
+7. He selects the "Delete" option for that item.
+
+8. The plmsApp asks for confirmation.
+
+9. Mark confirms, and the DVD is removed from his inventory.
+UC-03 Search & Filter Inventory
+Scenario name: findSpecificBook
+
+Participating actor instances: sarah:User, plmsApp:PLMS
+
+Flow of events:
+
+1. Sarah wants to find a sci-fi book to read but can't remember the title.
+
+2. She opens the plmsApp and navigates to her main library view.
+
+3. She uses the filter controls to select Category = "Book" and Tag = "Sci-Fi".
+
+4. The app's view updates to show only the 30 books from her collection tagged as "Sci-Fi."
+
+5. She still can't spot it, so she types "Asimov" into the main search bar.
+
+6. The plmsApp updates the list again, showing only the 5 books in her collection that are "Books," tagged "Sci-Fi," AND have "Asimov" as the author.
+
+	•	She sees "Foundation," the book she was looking for.
+
+UC-04 Manage Lists
+Scenario name: createVacationReadingList
+
+Participating actor instances: mark:User, plmsApp:PLMS
+
+Flow of events:
+
+1. Mark is planning a vacation and wants to pick out a few books to take with him.
+
+2. He opens the "Lists" section in the plmsApp.
+
+3. He clicks "Create New List" and names it "Vacation Reading".
+
+4. The app shows the new, empty list. He clicks "Add Items."
+
+5. He is taken to his main library, where he searches for "The Stand" and adds it to the list.
+
+6. He then filters his library by "To Read" and "Genre: Fantasy" and adds two more books to his "Vacation Reading" list.
+
+7. He reviews the list of three books and drags "The Stand" to the top to prioritize it.
+UC-05 Track Progress
+Scenario name: logReadingSession
+
+Participating actor instances: sarah:User, plmsApp:PLMS
+
+Flow of events:
+1. Sarah finishes reading for the night. She read pages 50 through 85 of "Dune."
+
+2. She opens the plmsApp on her phone and finds "Dune" (which is in her "Currently Reading" list).
+
+3. She taps on the item to open its detail page.
+
+4. She taps the "Update Progress" button.
+
+5. The app asks for her current page. She enters "85".
+
+6. The app saves the progress, updating the item's visual progress bar to show she is 85 pages through the book.
+
+	•	The app also creates a historical log entry: "[Date], read to page 85".
+UC-06 Manage Loans
+Scenario name: loanDvdToFriend
+
+Participating actor instances: mark:User, plmsApp:PLMS
+
+Flow of events:
+
+1. Mark's friend, David, asks to borrow his "Blade Runner" DVD.
+
+2. Mark agrees and gives David the DVD.
+
+3. Mark opens his plmsApp to track the loan.
+
+4. He finds the "Blade Runner" DVD in his inventory and selects "Update".
+
+5. He changes the item's status from "Available" to "Loaned Out".
+
+6. A new text field "Loaned To" appears. Mark enters "David Smith."
+
+7. He saves the change. The item now visually indicates it is "Loaned Out" in his main library view.
+UC-07 Import/Export Data
+Scenario name: backupLibraryCollection
+
+Participating actor instances: sarah:User, plmsApp:PLMS
+
+Flow of events:
+
+1. Sarah wants to create a local backup of her entire library database, which contains over 500 items.
+
+
+2. She opens the plmsApp desktop application.
+
+
+3. She navigates to "Settings" > "Data Management."
+
+
+	•	She clicks the "Export Library" button.
+
+
+	•	The plmsApp asks her to choose a format (e.g., CSV or JSON) and a save location.
+
+
+6. She selects "CSV" and saves the file to her "Documents" folder.
+
+
+	•	The system generates a my_library_backup.csv file containing all her inventory items and their details.
+
+
+
+
+UC-08 Enable Cloud Sync
+Scenario name: syncLibraryAcrossDevices
+
+Participating actor instances: mark:User, desktopApp:PLMS, mobileApp:PLMS, cloudBackend:PLMS
+
+Flow of events:
+
+1. Mark creates a new user account and logs in on his desktopApp.
+
+2. He spends an hour adding 20 books and 10 DVDs to his library.
+
+3. The desktopApp automatically uploads the new records and progress logs to the cloudBackend.
+
+4. Later, Mark is on the bus and downloads the mobileApp on his phone.
+
+5. He logs in with the same user account.
+
+6. The mobileApp contacts the cloudBackend, detects the existing data, and downloads all 30 items.
+
+7. His entire library is now synchronized and available on his phone.
+
+Use case model
+Figure U1 – Use Case Diagram:
+
+Use cases:
+	•	UC-01 Add Item via ISBN/Barcode
+	•	UC-02 Manual Add/Edit/Delete Item
+	•	UC-03 Search & Filter Inventory
+	•	UC-04 Manage Lists
+	•	UC-05 Track Progress
+	•	UC-06 Manage Loans
+	•	UC-07 Import/Export Data
+	•	UC-08 Enable Cloud Sync
+
+Object model 
+Figure C1 –  Conceptual Class/Domain Model (analysis level):  
+
+
+
+
+
+Figure C1 alt  – Conceptual Class Model (plain UML style):
+
+Core classes (analysis attributes only):
+	•	MediaItem (id, type: Book,DVD}, title, year, condition, location, tags[])
+	•	BookInfo (isbn, pages, publisher, authors[])
+	•	DvdInfo (runtime, director, cast[])
+	•	ExternalLink (provider, externalId, url, rating, summary, lastSyncAt)
+	•	List (id, name)
+	•	ListItem (listId, itemId, position, priority)
+	•	ProgressLog (itemId, date, duration, pageOrMinute, percent)
+	•	Loan (itemId, toWhom, startDate, dueDate, returnedAt, status)
+
+Dynamic model
+Figure S1 – Sequence: Add Item via ISBN/Barcode 
+
+
+Figure S2 – Sequence: Track Reading/Viewing Progress:
+
+
+Figure SM1 – State Machine:
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+User interfaces and Mock-ups
+
+FIG 1 – Dashboard:
+
+
+FIG 2 – Global Search & Results:
+
+
+
+
+
+
+
+FIG 3 – Add via ISBN (lookup & candidate pick):
+
+
+FIG 4 – Lists:
+
+
+FIG 5 – Settings & Sync:
+
+
+Glossary of Terms
+	•	Actor – An external entity that interacts with PLMS (User, External Provider).
+	•	Available / Loaned / Returned / Overdue – Operational statuses of an item with respect to loans.
+	•	CRUD – Create, Read, Update, Delete operations.
+	•	External Provider – Online metadata source queried during Add via ISBN.
+	•	ExternalLink – Persistent mapping from a local item to a provider record (provider, externalId, url, lastSyncAt).
+	•	Facet – A filter dimension in search (type, author/cast, tag, year, loan status).
+	•	ISBN – International Standard Book Number used to identify books.
+	•	Item / MediaItem – A record representing a Book or DVD in the collection.
+	•	List / ListItem – User-defined collection and its ordered entries (position/priority).
+	•	Loan – A record capturing toWhom, start/due dates, return info, and status.
+	•	Progress Log – Timestamped record of reading/viewing progress (page/minute, %).
+	•	Soft delete – Reversible removal: item is hidden but can be restored.
+	•	UML – Unified Modeling Language (use case, class/domain, sequence, state diagrams).
+	•	FR / NFR – Functional / Nonfunctional requirement.
+	•	PLMS – Personal Library Management System (single-user app in this project).
+Traceability
+
+Problem Statement / Feature
+Functional Requirements (FRs)
+Use Cases (UCs)
+Evidence in Models & UI
+Rapid, low-effort item entry [cite: 223]
+FR-01, FR-02–FR-04 [cite: 224]
+UC-01, UC-02 [cite: 225]
+Figure U1 (UC-01/02), Figure C1 (MediaItem, ExternalLink), Figure S1, UI: “Add via ISBN” [cite: 226]
+Accurate metadata & safe updates [cite: 227]
+FR-06–FR-09 [cite: 228]
+UC-01 [cite: 229]
+Figure C1 (ExternalLink), Figure S1 (alt flow), UI: metadata panel [cite: 230]
+Findability (search + filters) [cite: 231]
+FR-05 [cite: 232]
+UC-03 [cite: 233]
+Figure U1 (UC-03), UI: “Search & Results” [cite: 234]
+Organization with lists & priorities [cite: 235]
+FR-10–FR-12 [cite: 236]
+UC-04 [cite: 237]
+Figure C1 (List, ListItem associations), UI: “Lists” [cite: 238]
+Track reading/viewing progress [cite: 239]
+FR-13–FR-16 [cite: 240]
+UC-05 [cite: 241]
+Figure S2 (Sequence – Track Progress), Figure C1 (ProgressLog), UI: “Item Progress” view [cite: 242]
+Know who borrowed what & when it’s due [cite: 243]
+FR-17–FR-18 [cite: 244]
+UC-06 [cite: 245]
+Figure C1 (Loan), Figure SM1 (Lifecycle), UI: dashboard reminders [cite: 246]
+Data portability & backup [cite: 247]
+FR-19 [cite: 248]
+UC-07 [cite: 249]
+Figure U1 (UC-07), UI: Settings → Export/Import [cite: 250]
+Single-user multi-device (optional) [cite: 251]
+FR-20 [cite: 252]
+UC-08 [cite: 253]
+Figure U1 (UC-08), UI: Settings → Cloud Sync toggle [cite: 254]
+Quality goals [cite: 255]
+NFR set (U1–U4, P1–P3, R1–R4, Spt1–Spt3) [cite: 256]
+N/A (Applies to all)
+Targets in §3.3; error handling in Figure S1; lifecycle in Figure SM1 [cite: 257]
+      Github Repository: https://github.com/yusufaslanargun/Personal-Library-Management-System
