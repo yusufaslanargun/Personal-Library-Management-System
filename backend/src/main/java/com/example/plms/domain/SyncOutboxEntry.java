@@ -20,6 +20,9 @@ public class SyncOutboxEntry {
     @Column(nullable = false, length = 40)
     private String entityType;
 
+    @Column(name = "user_id")
+    private Long userId;
+
     @Column(nullable = false, length = 200)
     private String entityKey;
 
@@ -32,10 +35,11 @@ public class SyncOutboxEntry {
     protected SyncOutboxEntry() {
     }
 
-    public SyncOutboxEntry(String entityType, String entityKey, String operation) {
+    public SyncOutboxEntry(String entityType, String entityKey, String operation, Long userId) {
         this.entityType = entityType;
         this.entityKey = entityKey;
         this.operation = operation;
+        this.userId = userId;
     }
 
     @PrePersist
@@ -49,6 +53,10 @@ public class SyncOutboxEntry {
 
     public String getEntityType() {
         return entityType;
+    }
+
+    public Long getUserId() {
+        return userId;
     }
 
     public String getEntityKey() {

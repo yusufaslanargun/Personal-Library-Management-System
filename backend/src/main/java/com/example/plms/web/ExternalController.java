@@ -2,6 +2,7 @@ package com.example.plms.web;
 
 import com.example.plms.external.ExternalBookCandidate;
 import com.example.plms.service.ExternalIntegrationService;
+import com.example.plms.security.AuthenticatedUser;
 import com.example.plms.web.dto.ExternalApplyRequest;
 import com.example.plms.web.dto.ExternalDiffField;
 import com.example.plms.web.dto.ExternalLinkRequest;
@@ -10,6 +11,7 @@ import com.example.plms.web.dto.ItemResponse;
 import jakarta.validation.Valid;
 import java.util.List;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -35,22 +37,25 @@ public class ExternalController {
 
     @PostMapping("/external/books/confirm")
     @ResponseStatus(HttpStatus.CREATED)
-    public ItemResponse confirm(@Valid @RequestBody IsbnConfirmRequest request) {
-        return externalService.createFromIsbn(request);
+    public ItemResponse confirm(@AuthenticationPrincipal AuthenticatedUser user,
+                                @Valid @RequestBody IsbnConfirmRequest request) {
+        return externalService.createFromIsbn(user.id(), request);
     }
 
     @PostMapping("/items/{id}/external-link")
-    public ItemResponse attachLink(@PathVariable Long id, @RequestBody ExternalLinkRequest request) {
-        return externalService.attachExternalLink(id, request);
+    public ItemResponse attachLink(@AuthenticationPrincipal AuthenticatedUser user,
+                                   @PathVariable Long id, @RequestBody ExternalLinkRequest request) {
+        return externalService.attachExternalLink(user.id(), id, request);
     }
 
     @GetMapping("/items/{id}/external-refresh")
-    public List<ExternalDiffField> refresh(@PathVariable Long id) {
-        return externalService.refreshExternal(id);
+    public List<ExternalDiffField> refresh(@AuthenticationPrincipal AuthenticatedUser user, @PathVariable Long id) {
+        return externalService.refreshExternal(user.id(), id);
     }
 
     @PostMapping("/items/{id}/external-apply")
-    public ItemResponse apply(@PathVariable Long id, @RequestBody ExternalApplyRequest request) {
-        return externalService.applyExternal(id, request);
+    public ItemResponse apply(@AuthenticationPrincipal AuthenticatedUser user,
+                              @PathVariable Long id, @RequestBody ExternalApplyRequest request) {
+        return externalService.applyExternal(user.id(), id, request);
     }
 }

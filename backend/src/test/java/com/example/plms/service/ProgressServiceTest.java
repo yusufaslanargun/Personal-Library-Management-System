@@ -31,24 +31,26 @@ class ProgressServiceTest {
 
     @Test
     void clampsProgressWithinRange() {
+        long userId = 1L;
         MediaItem item = new MediaItem(MediaType.BOOK, "Test", 2020);
         item.setTotalValue(200);
-        when(itemRepository.findByIdAndDeletedAtIsNull(1L)).thenReturn(Optional.of(item));
+        when(itemRepository.findByIdAndDeletedAtIsNullAndOwner_Id(1L, userId)).thenReturn(Optional.of(item));
         when(progressLogRepository.save(org.mockito.Mockito.any())).thenAnswer(invocation -> invocation.getArgument(0));
 
         ProgressLogRequest request = new ProgressLogRequest(LocalDate.now(), 30, 100);
-        var response = progressService.logProgress(1L, request);
+        var response = progressService.logProgress(userId, 1L, request);
 
         assertEquals(50, response.percent());
     }
 
     @Test
     void rejectsProgressAboveTotal() {
+        long userId = 1L;
         MediaItem item = new MediaItem(MediaType.BOOK, "Test", 2020);
         item.setTotalValue(100);
-        when(itemRepository.findByIdAndDeletedAtIsNull(1L)).thenReturn(Optional.of(item));
+        when(itemRepository.findByIdAndDeletedAtIsNullAndOwner_Id(1L, userId)).thenReturn(Optional.of(item));
 
         ProgressLogRequest request = new ProgressLogRequest(LocalDate.now(), 10, 120);
-        assertThrows(ResponseStatusException.class, () -> progressService.logProgress(1L, request));
+        assertThrows(ResponseStatusException.class, () -> progressService.logProgress(userId, 1L, request));
     }
 }

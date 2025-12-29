@@ -6,5 +6,6 @@ import java.util.List;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface SyncOutboxRepository extends JpaRepository<SyncOutboxEntry, Long> {
-    List<SyncOutboxEntry> findByQueuedAtAfterOrderByQueuedAtAsc(OffsetDateTime since);
+    List<SyncOutboxEntry> findByUserIdAndQueuedAtAfterOrderByQueuedAtAsc(Long userId, OffsetDateTime since);
+    List<SyncOutboxEntry> findByUserId(Long userId);
 }

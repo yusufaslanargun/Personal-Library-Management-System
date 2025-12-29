@@ -6,4 +6,5 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface ExternalLinkRepository extends JpaRepository<ExternalLink, Long> {
     List<ExternalLink> findByItemId(Long itemId);
+    List<ExternalLink> findByItemIdIn(List<Long> itemIds);
 }

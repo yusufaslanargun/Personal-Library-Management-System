@@ -68,7 +68,7 @@ export default function Settings() {
               <option value="json">JSON</option>
               <option value="csv">CSV (zip)</option>
             </select>
-            <button onClick={exportData}>Download</button>
+            <button className="secondary" onClick={exportData}>Download</button>
           </div>
         </div>
         <div className="card">
@@ -111,8 +111,8 @@ export default function Settings() {
         )}
         <div className="inline">
           <button onClick={() => toggleSync(true)}>Enable</button>
-          <button onClick={() => toggleSync(false)}>Disable</button>
-          <button onClick={runSync}>Run Sync</button>
+          <button className="ghost" onClick={() => toggleSync(false)}>Disable</button>
+          <button className="secondary" onClick={runSync}>Run Sync</button>
         </div>
       </div>
     </div>

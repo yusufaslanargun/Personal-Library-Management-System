@@ -30,18 +30,20 @@ class LoanServiceTest {
 
     @Test
     void rejectsInvalidDueDate() {
+        long userId = 1L;
         LoanRequest request = new LoanRequest("Alex", LocalDate.now(), LocalDate.now().minusDays(1));
-        assertThrows(ResponseStatusException.class, () -> loanService.createLoan(1L, request));
+        assertThrows(ResponseStatusException.class, () -> loanService.createLoan(userId, 1L, request));
     }
 
     @Test
     void rejectsSecondActiveLoan() {
+        long userId = 1L;
         MediaItem item = new MediaItem(MediaType.BOOK, "Test", 2020);
-        when(itemRepository.findByIdAndDeletedAtIsNull(1L)).thenReturn(Optional.of(item));
+        when(itemRepository.findByIdAndDeletedAtIsNullAndOwner_Id(1L, userId)).thenReturn(Optional.of(item));
         com.example.plms.domain.Loan existingLoan = new com.example.plms.domain.Loan(item, "Alex", LocalDate.now(), LocalDate.now().plusDays(3));
-        when(loanRepository.findFirstByItemIdAndReturnedAtIsNull(1L)).thenReturn(Optional.of(existingLoan));
+        when(loanRepository.findFirstByItemIdAndReturnedAtIsNullAndItemOwner_Id(1L, userId)).thenReturn(Optional.of(existingLoan));
 
         LoanRequest request = new LoanRequest("Alex", LocalDate.now(), LocalDate.now().plusDays(3));
-        assertThrows(ResponseStatusException.class, () -> loanService.createLoan(1L, request));
+        assertThrows(ResponseStatusException.class, () -> loanService.createLoan(userId, 1L, request));
     }
 }

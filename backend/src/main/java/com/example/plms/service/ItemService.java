@@ -2,8 +2,10 @@ package com.example.plms.service;
 
 import com.example.plms.domain.BookInfo;
 import com.example.plms.domain.DvdInfo;
+import com.example.plms.domain.AppUser;
 import com.example.plms.domain.MediaItem;
 import com.example.plms.domain.MediaType;
+import com.example.plms.repository.AppUserRepository;
 import com.example.plms.repository.MediaItemRepository;
 import com.example.plms.web.dto.BookInfoRequest;
 import com.example.plms.web.dto.DvdInfoRequest;
@@ -21,18 +23,23 @@ import org.springframework.http.HttpStatus;
 @Service
 public class ItemService {
     private final MediaItemRepository itemRepository;
+    private final AppUserRepository userRepository;
     private final TagService tagService;
     private final ItemMapper itemMapper;
 
-    public ItemService(MediaItemRepository itemRepository, TagService tagService, ItemMapper itemMapper) {
+    public ItemService(MediaItemRepository itemRepository, AppUserRepository userRepository, TagService tagService,
+                       ItemMapper itemMapper) {
         this.itemRepository = itemRepository;
+        this.userRepository = userRepository;
         this.tagService = tagService;
         this.itemMapper = itemMapper;
     }
 
     @Transactional
-    public ItemResponse createManual(ItemCreateRequest request) {
+    public ItemResponse createManual(Long userId, ItemCreateRequest request) {
         MediaItem item = new MediaItem(request.type(), request.title(), request.year());
+        AppUser owner = userRepository.getReferenceById(userId);
+        item.setOwner(owner);
         item.setCondition(request.condition());
         item.setLocation(request.location());
         item.setTags(tagService.resolveTags(request.tags()));
@@ -48,32 +55,32 @@ public class ItemService {
     }
 
     @Transactional(readOnly = true)
-    public ItemResponse getItem(Long id) {
-        MediaItem item = itemRepository.findByIdAndDeletedAtIsNull(id)
+    public ItemResponse getItem(Long userId, Long id) {
+        MediaItem item = itemRepository.findByIdAndDeletedAtIsNullAndOwner_Id(id, userId)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Item not found"));
         return itemMapper.toResponse(item);
     }
 
     @Transactional(readOnly = true)
-    public ItemResponse getItemIncludingDeleted(Long id) {
-        MediaItem item = itemRepository.findById(id)
+    public ItemResponse getItemIncludingDeleted(Long userId, Long id) {
+        MediaItem item = itemRepository.findByIdAndOwner_Id(id, userId)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Item not found"));
         return itemMapper.toResponse(item);
     }
 
     @Transactional(readOnly = true)
-    public List<ItemResponse> listActive() {
-        return itemRepository.findAllByDeletedAtIsNull().stream().map(itemMapper::toResponse).toList();
+    public List<ItemResponse> listActive(Long userId) {
+        return itemRepository.findAllByDeletedAtIsNullAndOwner_Id(userId).stream().map(itemMapper::toResponse).toList();
     }
 
     @Transactional(readOnly = true)
-    public List<ItemResponse> listTrash() {
-        return itemRepository.findAllByDeletedAtIsNotNull().stream().map(itemMapper::toResponse).toList();
+    public List<ItemResponse> listTrash(Long userId) {
+        return itemRepository.findAllByDeletedAtIsNotNullAndOwner_Id(userId).stream().map(itemMapper::toResponse).toList();
     }
 
     @Transactional
-    public ItemResponse update(Long id, ItemUpdateRequest request) {
-        MediaItem item = itemRepository.findByIdAndDeletedAtIsNull(id)
+    public ItemResponse update(Long userId, Long id, ItemUpdateRequest request) {
+        MediaItem item = itemRepository.findByIdAndDeletedAtIsNullAndOwner_Id(id, userId)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Item not found"));
 
         if (request.type() != null) {
@@ -108,16 +115,16 @@ public class ItemService {
     }
 
     @Transactional
-    public void softDelete(Long id) {
-        MediaItem item = itemRepository.findByIdAndDeletedAtIsNull(id)
+    public void softDelete(Long userId, Long id) {
+        MediaItem item = itemRepository.findByIdAndDeletedAtIsNullAndOwner_Id(id, userId)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Item not found"));
         item.setDeletedAt(OffsetDateTime.now(ZoneOffset.UTC));
         itemRepository.save(item);
     }
 
     @Transactional
-    public void restore(Long id) {
-        MediaItem item = itemRepository.findById(id)
+    public void restore(Long userId, Long id) {
+        MediaItem item = itemRepository.findByIdAndOwner_Id(id, userId)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Item not found"));
         item.setDeletedAt(null);
         itemRepository.save(item);

@@ -3,8 +3,10 @@ package com.example.plms.web;
 import com.example.plms.domain.MediaStatus;
 import com.example.plms.domain.MediaType;
 import com.example.plms.service.SearchService;
+import com.example.plms.security.AuthenticatedUser;
 import com.example.plms.web.dto.SearchResponse;
 import java.util.List;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -19,6 +21,7 @@ public class SearchController {
 
     @GetMapping("/items/search")
     public SearchResponse search(
+        @AuthenticationPrincipal AuthenticatedUser user,
         @RequestParam(required = false) String query,
         @RequestParam(required = false) MediaType type,
         @RequestParam(required = false) MediaStatus status,
@@ -31,6 +34,6 @@ public class SearchController {
         @RequestParam(defaultValue = "0") int page,
         @RequestParam(defaultValue = "20") int size
     ) {
-        return searchService.search(query, type, status, tags, author, cast, year, condition, location, page, size);
+        return searchService.search(user.id(), query, type, status, tags, author, cast, year, condition, location, page, size);
     }
 }

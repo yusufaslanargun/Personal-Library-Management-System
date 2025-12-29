@@ -1,6 +1,7 @@
 package com.example.plms.web;
 
 import com.example.plms.service.ImportExportService;
+import com.example.plms.security.AuthenticatedUser;
 import com.example.plms.web.dto.ExportBundle;
 import com.example.plms.web.dto.ImportSummary;
 import java.io.IOException;
@@ -8,6 +9,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -24,28 +26,30 @@ public class ImportExportController {
     }
 
     @GetMapping("/export")
-    public ResponseEntity<?> exportData(@RequestParam(defaultValue = "json") String format) {
+    public ResponseEntity<?> exportData(@AuthenticationPrincipal AuthenticatedUser user,
+                                        @RequestParam(defaultValue = "json") String format) {
         if ("csv".equalsIgnoreCase(format)) {
-            byte[] zip = importExportService.exportCsvZip();
+            byte[] zip = importExportService.exportCsvZip(user.id());
             return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=plms-export.zip")
                 .contentType(MediaType.APPLICATION_OCTET_STREAM)
                 .body(zip);
         }
-        ExportBundle bundle = importExportService.exportBundle();
+        ExportBundle bundle = importExportService.exportBundle(user.id());
         return ResponseEntity.ok(bundle);
     }
 
     @PostMapping("/import")
     public ResponseEntity<ImportSummary> importData(@RequestParam(defaultValue = "json") String format,
-                                    @RequestParam("file") MultipartFile file) {
+                                    @RequestParam("file") MultipartFile file,
+                                    @AuthenticationPrincipal AuthenticatedUser user) {
         try {
             byte[] payload = file.getBytes();
             if ("csv".equalsIgnoreCase(format)) {
-                ImportSummary summary = importExportService.importCsv(payload);
+                ImportSummary summary = importExportService.importCsv(user.id(), payload);
                 return buildImportResponse(summary);
             }
-            ImportSummary summary = importExportService.importJson(payload);
+            ImportSummary summary = importExportService.importJson(user.id(), payload);
             return buildImportResponse(summary);
         } catch (IOException ex) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unable to read upload");

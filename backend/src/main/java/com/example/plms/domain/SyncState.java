@@ -2,6 +2,8 @@ package com.example.plms.domain;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
@@ -13,7 +15,11 @@ import java.time.ZoneOffset;
 @Table(name = "sync_state")
 public class SyncState {
     @Id
-    private Integer id = 1;
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Integer id;
+
+    @Column(name = "user_id")
+    private Long userId;
 
     private OffsetDateTime lastSyncAt;
 
@@ -42,6 +48,14 @@ public class SyncState {
 
     public Integer getId() {
         return id;
+    }
+
+    public Long getUserId() {
+        return userId;
+    }
+
+    public void setUserId(Long userId) {
+        this.userId = userId;
     }
 
     public OffsetDateTime getLastSyncAt() {

@@ -28,7 +28,7 @@ public class SearchService {
     }
 
     @Transactional(readOnly = true)
-    public SearchResponse search(String query, MediaType type, MediaStatus status, List<String> tags,
+    public SearchResponse search(Long userId, String query, MediaType type, MediaStatus status, List<String> tags,
                                  String author, String cast, Integer year, String condition,
                                  String location, int page, int size) {
         String normalizedQuery = query == null || query.isBlank() ? null : query.trim();
@@ -48,6 +48,7 @@ public class SearchService {
         params.addValue("location", location == null || location.isBlank() ? null : location.trim(), Types.VARCHAR);
         params.addValue("limit", safeSize);
         params.addValue("offset", offset);
+        params.addValue("userId", userId);
         List<String> normalizedTags = tags == null ? List.of() : tags.stream()
             .map(String::trim)
             .filter(tag -> !tag.isBlank())
@@ -59,6 +60,7 @@ public class SearchService {
         }
 
         String baseWhere = "WHERE mi.deleted_at IS NULL "
+            + "AND mi.user_id = :userId "
             + "AND (:type IS NULL OR mi.type = :type) "
             + "AND (:status IS NULL OR mi.status = :status) "
             + "AND (:year IS NULL OR mi.year = :year) "
@@ -104,7 +106,7 @@ public class SearchService {
             return new SearchResponse(List.of(), page, size, total);
         }
 
-        List<MediaItem> items = itemRepository.findByIdIn(ids);
+        List<MediaItem> items = itemRepository.findByIdInAndOwner_Id(ids, userId);
         Map<Long, MediaItem> mapped = new HashMap<>();
         for (MediaItem item : items) {
             mapped.put(item.getId(), item);

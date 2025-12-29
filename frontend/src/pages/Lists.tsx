@@ -99,7 +99,7 @@ export default function Lists() {
             <>
               <div className="toolbar">
                 <h3>{selected.name}</h3>
-                <button onClick={() => deleteList(selected.id)}>Delete</button>
+                <button className="danger" onClick={() => deleteList(selected.id)}>Delete</button>
               </div>
               <div className="inline">
                 <input value={addItemId} onChange={(e) => setAddItemId(e.target.value)} placeholder="Item ID" />
@@ -113,8 +113,8 @@ export default function Lists() {
                     <li key={item.itemId}>
                       <span>{item.title}</span>
                       <div className="actions">
-                        <button onClick={() => move(index, -1)}>Up</button>
-                        <button onClick={() => move(index, 1)}>Down</button>
+                        <button className="ghost small" onClick={() => move(index, -1)}>Up</button>
+                        <button className="ghost small" onClick={() => move(index, 1)}>Down</button>
                       </div>
                     </li>
                   ))}

@@ -11,6 +11,7 @@ import com.example.plms.web.dto.UserResponse;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import org.springframework.http.HttpStatus;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -22,11 +23,14 @@ public class AuthService {
     private final AppUserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
+    private final JdbcTemplate jdbcTemplate;
 
-    public AuthService(AppUserRepository userRepository, PasswordEncoder passwordEncoder, JwtService jwtService) {
+    public AuthService(AppUserRepository userRepository, PasswordEncoder passwordEncoder, JwtService jwtService,
+                       JdbcTemplate jdbcTemplate) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
+        this.jdbcTemplate = jdbcTemplate;
     }
 
     @Transactional
@@ -37,6 +41,7 @@ public class AuthService {
         }
         AppUser user = new AppUser(email, passwordEncoder.encode(request.password()), request.displayName().trim());
         AppUser saved = userRepository.save(user);
+        claimLegacyDataIfNeeded(saved.getId());
         String token = jwtService.generateToken(saved.getId(), saved.getEmail());
         return new AuthResponse(token, toResponse(saved));
     }
@@ -50,6 +55,7 @@ public class AuthService {
         }
         user.setLastLoginAt(OffsetDateTime.now(ZoneOffset.UTC));
         AppUser saved = userRepository.save(user);
+        claimLegacyDataIfNeeded(saved.getId());
         String token = jwtService.generateToken(saved.getId(), saved.getEmail());
         return new AuthResponse(token, toResponse(saved));
     }
@@ -66,5 +72,31 @@ public class AuthService {
 
     private UserResponse toResponse(AppUser user) {
         return new UserResponse(user.getId(), user.getEmail(), user.getDisplayName(), user.getCreatedAt(), user.getLastLoginAt());
+    }
+
+    private void claimLegacyDataIfNeeded(Long userId) {
+        Integer ownedItems = jdbcTemplate.queryForObject(
+            "SELECT COUNT(*) FROM media_item WHERE user_id IS NOT NULL",
+            Integer.class
+        );
+        Integer unownedItems = jdbcTemplate.queryForObject(
+            "SELECT COUNT(*) FROM media_item WHERE user_id IS NULL",
+            Integer.class
+        );
+        Integer ownedLists = jdbcTemplate.queryForObject(
+            "SELECT COUNT(*) FROM list WHERE user_id IS NOT NULL",
+            Integer.class
+        );
+        Integer unownedLists = jdbcTemplate.queryForObject(
+            "SELECT COUNT(*) FROM list WHERE user_id IS NULL",
+            Integer.class
+        );
+        boolean hasUnowned = (unownedItems != null && unownedItems > 0) || (unownedLists != null && unownedLists > 0);
+        boolean hasOwned = (ownedItems != null && ownedItems > 0) || (ownedLists != null && ownedLists > 0);
+        if (!hasUnowned || hasOwned) {
+            return;
+        }
+        jdbcTemplate.update("UPDATE media_item SET user_id = ? WHERE user_id IS NULL", userId);
+        jdbcTemplate.update("UPDATE list SET user_id = ? WHERE user_id IS NULL", userId);
     }
 }

@@ -4,6 +4,8 @@ import com.example.plms.domain.ListItem;
 import com.example.plms.domain.ListItemId;
 import com.example.plms.domain.MediaItem;
 import com.example.plms.domain.MediaList;
+import com.example.plms.domain.AppUser;
+import com.example.plms.repository.AppUserRepository;
 import com.example.plms.repository.ListItemRepository;
 import com.example.plms.repository.MediaItemRepository;
 import com.example.plms.repository.MediaListRepository;
@@ -24,58 +26,63 @@ public class ListService {
     private final ListItemRepository listItemRepository;
     private final MediaItemRepository itemRepository;
     private final SyncOutboxService syncOutboxService;
+    private final AppUserRepository userRepository;
 
     public ListService(MediaListRepository listRepository, ListItemRepository listItemRepository,
-                       MediaItemRepository itemRepository, SyncOutboxService syncOutboxService) {
+                       MediaItemRepository itemRepository, SyncOutboxService syncOutboxService,
+                       AppUserRepository userRepository) {
         this.listRepository = listRepository;
         this.listItemRepository = listItemRepository;
         this.itemRepository = itemRepository;
         this.syncOutboxService = syncOutboxService;
+        this.userRepository = userRepository;
     }
 
     @Transactional
-    public MediaListResponse create(String name) {
+    public MediaListResponse create(Long userId, String name) {
         MediaList list = new MediaList(name.trim());
+        AppUser owner = userRepository.getReferenceById(userId);
+        list.setOwner(owner);
         MediaList saved = listRepository.save(list);
         return new MediaListResponse(saved.getId(), saved.getName(), List.of());
     }
 
     @Transactional
-    public MediaListResponse update(Long id, String name) {
-        MediaList list = listRepository.findById(id)
+    public MediaListResponse update(Long userId, Long id, String name) {
+        MediaList list = listRepository.findByIdAndOwner_Id(id, userId)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "List not found"));
         list.setName(name.trim());
         return toResponse(list);
     }
 
     @Transactional
-    public void delete(Long id) {
-        MediaList list = listRepository.findById(id)
+    public void delete(Long userId, Long id) {
+        MediaList list = listRepository.findByIdAndOwner_Id(id, userId)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "List not found"));
         listRepository.delete(list);
-        syncOutboxService.enqueueDelete("LIST", String.valueOf(id));
+        syncOutboxService.enqueueDelete(userId, "LIST", String.valueOf(id));
     }
 
     @Transactional(readOnly = true)
-    public List<MediaListResponse> findAll() {
-        return listRepository.findAll().stream().map(this::toResponse).toList();
+    public List<MediaListResponse> findAll(Long userId) {
+        return listRepository.findAllByOwner_Id(userId).stream().map(this::toResponse).toList();
     }
 
     @Transactional(readOnly = true)
-    public MediaListResponse get(Long id) {
-        MediaList list = listRepository.findById(id)
+    public MediaListResponse get(Long userId, Long id) {
+        MediaList list = listRepository.findByIdAndOwner_Id(id, userId)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "List not found"));
         return toResponse(list);
     }
 
     @Transactional
-    public MediaListResponse addItem(Long listId, Long itemId, Integer priority) {
+    public MediaListResponse addItem(Long userId, Long listId, Long itemId, Integer priority) {
         if (listItemRepository.existsByIdListIdAndIdItemId(listId, itemId)) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Item already in list");
         }
-        MediaList list = listRepository.findById(listId)
+        MediaList list = listRepository.findByIdAndOwner_Id(listId, userId)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "List not found"));
-        MediaItem item = itemRepository.findByIdAndDeletedAtIsNull(itemId)
+        MediaItem item = itemRepository.findByIdAndDeletedAtIsNullAndOwner_Id(itemId, userId)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Item not found"));
 
         int nextPosition = listItemRepository.findByIdListIdOrderByPosition(listId).size();
@@ -85,23 +92,27 @@ public class ListService {
     }
 
     @Transactional
-    public MediaListResponse removeItem(Long listId, Long itemId) {
+    public MediaListResponse removeItem(Long userId, Long listId, Long itemId) {
+        listRepository.findByIdAndOwner_Id(listId, userId)
+            .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "List not found"));
         ListItemId id = new ListItemId(listId, itemId);
         if (!listItemRepository.existsById(id)) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "List item not found");
         }
         listItemRepository.deleteById(id);
-        syncOutboxService.enqueueDelete("LIST_ITEM", listId + ":" + itemId);
+        syncOutboxService.enqueueDelete(userId, "LIST_ITEM", listId + ":" + itemId);
         reorderInternal(listId, null);
-        MediaList list = listRepository.findById(listId)
+        MediaList list = listRepository.findByIdAndOwner_Id(listId, userId)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "List not found"));
         return toResponse(list);
     }
 
     @Transactional
-    public MediaListResponse reorder(Long listId, List<Long> itemIds) {
+    public MediaListResponse reorder(Long userId, Long listId, List<Long> itemIds) {
+        listRepository.findByIdAndOwner_Id(listId, userId)
+            .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "List not found"));
         reorderInternal(listId, itemIds);
-        MediaList list = listRepository.findById(listId)
+        MediaList list = listRepository.findByIdAndOwner_Id(listId, userId)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "List not found"));
         return toResponse(list);
     }

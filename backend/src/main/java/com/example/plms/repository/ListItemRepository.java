@@ -8,4 +8,5 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface ListItemRepository extends JpaRepository<ListItem, ListItemId> {
     List<ListItem> findByIdListIdOrderByPosition(Long listId);
     boolean existsByIdListIdAndIdItemId(Long listId, Long itemId);
+    List<ListItem> findByIdListIdIn(List<Long> listIds);
 }

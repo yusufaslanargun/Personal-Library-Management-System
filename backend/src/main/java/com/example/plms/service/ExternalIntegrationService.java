@@ -5,10 +5,12 @@ import com.example.plms.domain.DvdInfo;
 import com.example.plms.domain.ExternalLink;
 import com.example.plms.domain.MediaItem;
 import com.example.plms.domain.MediaType;
+import com.example.plms.domain.AppUser;
 import com.example.plms.external.ExternalBookCandidate;
 import com.example.plms.external.ExternalMetadata;
 import com.example.plms.external.OmdbClient;
 import com.example.plms.external.OpenLibraryClient;
+import com.example.plms.repository.AppUserRepository;
 import com.example.plms.repository.ExternalLinkRepository;
 import com.example.plms.repository.MediaItemRepository;
 import com.example.plms.web.dto.ExternalApplyRequest;
@@ -38,17 +40,20 @@ public class ExternalIntegrationService {
     private final OmdbClient omdbClient;
     private final MediaItemRepository itemRepository;
     private final ExternalLinkRepository externalLinkRepository;
+    private final AppUserRepository userRepository;
     private final ItemMapper itemMapper;
 
     public ExternalIntegrationService(OpenLibraryClient openLibraryClient,
                                       OmdbClient omdbClient,
                                       MediaItemRepository itemRepository,
                                       ExternalLinkRepository externalLinkRepository,
+                                      AppUserRepository userRepository,
                                       ItemMapper itemMapper) {
         this.openLibraryClient = openLibraryClient;
         this.omdbClient = omdbClient;
         this.itemRepository = itemRepository;
         this.externalLinkRepository = externalLinkRepository;
+        this.userRepository = userRepository;
         this.itemMapper = itemMapper;
     }
 
@@ -63,9 +68,11 @@ public class ExternalIntegrationService {
     }
 
     @Transactional
-    public ItemResponse createFromIsbn(IsbnConfirmRequest request) {
+    public ItemResponse createFromIsbn(Long userId, IsbnConfirmRequest request) {
         MediaItem item = new MediaItem(MediaType.BOOK, request.title(),
             request.year() == null ? OffsetDateTime.now(ZoneOffset.UTC).getYear() : request.year());
+        AppUser owner = userRepository.getReferenceById(userId);
+        item.setOwner(owner);
         BookInfo info = new BookInfo(item);
         info.setIsbn(request.isbn());
         info.setPages(request.pageCount());
@@ -93,8 +100,8 @@ public class ExternalIntegrationService {
     }
 
     @Transactional
-    public List<ExternalDiffField> refreshExternal(Long itemId) {
-        MediaItem item = itemRepository.findByIdAndDeletedAtIsNull(itemId)
+    public List<ExternalDiffField> refreshExternal(Long userId, Long itemId) {
+        MediaItem item = itemRepository.findByIdAndDeletedAtIsNullAndOwner_Id(itemId, userId)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Item not found"));
         ExternalLink link = pickExternalLink(item);
         if (item.getType() != MediaType.DVD && link == null) {
@@ -112,8 +119,8 @@ public class ExternalIntegrationService {
     }
 
     @Transactional
-    public ItemResponse applyExternal(Long itemId, ExternalApplyRequest request) {
-        MediaItem item = itemRepository.findByIdAndDeletedAtIsNull(itemId)
+    public ItemResponse applyExternal(Long userId, Long itemId, ExternalApplyRequest request) {
+        MediaItem item = itemRepository.findByIdAndDeletedAtIsNullAndOwner_Id(itemId, userId)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Item not found"));
         ExternalLink link = pickExternalLink(item);
         ExternalMetadata metadata = fetchMetadata(item, link);
@@ -138,8 +145,8 @@ public class ExternalIntegrationService {
     }
 
     @Transactional
-    public ItemResponse attachExternalLink(Long itemId, ExternalLinkRequest request) {
-        MediaItem item = itemRepository.findByIdAndDeletedAtIsNull(itemId)
+    public ItemResponse attachExternalLink(Long userId, Long itemId, ExternalLinkRequest request) {
+        MediaItem item = itemRepository.findByIdAndDeletedAtIsNullAndOwner_Id(itemId, userId)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Item not found"));
         String provider;
         if (item.getType() == MediaType.DVD) {

@@ -1,4 +1,4 @@
-import { Link, Route, Routes } from 'react-router-dom'
+import { NavLink, Route, Routes } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import Dashboard from './pages/Dashboard'
 import Search from './pages/Search'
@@ -15,6 +15,16 @@ import { clearToken, getToken } from './auth'
 export default function App() {
   const [isAuthed, setIsAuthed] = useState(Boolean(getToken()))
   const [userName, setUserName] = useState('')
+  const [drawerOpen, setDrawerOpen] = useState(false)
+
+  const navItems = [
+    { to: '/', label: 'Dashboard', end: true },
+    { to: '/search', label: 'Search' },
+    { to: '/add', label: 'Add' },
+    { to: '/lists', label: 'Lists' },
+    { to: '/settings', label: 'Settings' },
+    { to: '/trash', label: 'Trash' }
+  ]
 
   useEffect(() => {
     if (!isAuthed) return
@@ -33,32 +43,91 @@ export default function App() {
     }} />
   }
 
+  const userInitial = userName ? userName[0].toUpperCase() : 'U'
+  const logout = () => {
+    clearToken()
+    setIsAuthed(false)
+    setUserName('')
+    setDrawerOpen(false)
+  }
+  const navLinks = navItems.map((item) => (
+    <NavLink
+      key={item.to}
+      to={item.to}
+      end={item.end}
+      className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}
+      onClick={() => setDrawerOpen(false)}
+    >
+      <span className="nav-dot" />
+      {item.label}
+    </NavLink>
+  ))
+
   return (
-    <div className="app">
-      <header className="topbar">
-        <div className="brand">PLMS</div>
-        <nav className="nav">
-          <Link to="/">Dashboard</Link>
-          <Link to="/search">Search</Link>
-          <Link to="/add">Add</Link>
-          <Link to="/lists">Lists</Link>
-          <Link to="/settings">Settings</Link>
-          <Link to="/trash">Trash</Link>
-        </nav>
-        <div className="nav">
-          <span className="muted">{userName}</span>
-          <button
-            onClick={() => {
-              clearToken()
-              setIsAuthed(false)
-              setUserName('')
-            }}
-          >
-            Logout
-          </button>
+    <div className="app-shell">
+      <aside className="sidebar">
+        <div className="sidebar-header">
+          <div className="brand">PLMS</div>
+          <span className="badge">Personal Library</span>
         </div>
-      </header>
-      <main className="main">
+        <nav className="side-nav">
+          {navLinks}
+        </nav>
+        <div className="sidebar-footer">
+          <div className="user-chip">
+            <span className="avatar">{userInitial}</span>
+            <div>
+              <div className="user-name">{userName || 'Reader'}</div>
+              <div className="user-meta">Signed in</div>
+            </div>
+          </div>
+          <button className="ghost" onClick={logout}>Logout</button>
+        </div>
+      </aside>
+
+      <div className="app-main">
+        <header className="topbar">
+          <button
+            className="ghost menu-button"
+            aria-label="Toggle navigation"
+            aria-expanded={drawerOpen}
+            aria-controls="mobile-menu"
+            onClick={() => setDrawerOpen((open) => !open)}
+          >
+            Menu
+          </button>
+          <div className="topbar-title">
+            <span className="brand">PLMS</span>
+            <span className="badge">Library</span>
+          </div>
+          <button className="ghost" onClick={logout}>Logout</button>
+        </header>
+
+        <div className={`mobile-drawer ${drawerOpen ? 'open' : ''}`} id="mobile-menu" aria-hidden={!drawerOpen}>
+          <div className="drawer-header">
+            <div>
+              <div className="brand">PLMS</div>
+              <span className="muted">Personal Library</span>
+            </div>
+            <button className="ghost small" onClick={() => setDrawerOpen(false)}>Close</button>
+          </div>
+          <nav className="side-nav">
+            {navLinks}
+          </nav>
+          <div className="sidebar-footer">
+            <div className="user-chip">
+              <span className="avatar">{userInitial}</span>
+              <div>
+                <div className="user-name">{userName || 'Reader'}</div>
+                <div className="user-meta">Signed in</div>
+              </div>
+            </div>
+            <button className="ghost" onClick={logout}>Logout</button>
+          </div>
+        </div>
+        {drawerOpen && <div className="backdrop" onClick={() => setDrawerOpen(false)} />}
+
+        <main className="main">
         <Routes>
           <Route path="/" element={<Dashboard />} />
           <Route path="/search" element={<Search />} />
@@ -68,7 +137,8 @@ export default function App() {
           <Route path="/settings" element={<Settings />} />
           <Route path="/trash" element={<Trash />} />
         </Routes>
-      </main>
+        </main>
+      </div>
     </div>
   )
 }

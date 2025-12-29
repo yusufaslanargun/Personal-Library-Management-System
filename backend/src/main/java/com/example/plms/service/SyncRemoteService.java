@@ -41,14 +41,17 @@ public class SyncRemoteService {
 
     public SyncResponse handle(SyncRequest request, String apiKey) {
         validateApiKey(apiKey);
-        SyncPayload store = loadStore();
-        Map<Long, SyncItem> items = toItemMap(store.items());
-        Map<Long, SyncList> lists = toListMap(store.lists());
-        Map<String, SyncListItem> listItems = toListItemMap(store.listItems());
-        Map<Long, SyncProgressLog> progressLogs = toProgressMap(store.progressLogs());
-        Map<Long, SyncLoan> loans = toLoanMap(store.loans());
-        Map<Long, SyncExternalLink> externalLinks = toExternalLinkMap(store.externalLinks());
-        Map<String, SyncDelete> tombstones = toDeleteMap(store.deletes());
+        SyncRemoteStore store = loadStore();
+        String clientKey = request.clientId() == null || request.clientId().isBlank() ? "default" : request.clientId();
+        Map<String, SyncPayload> clients = store.clients() == null ? new HashMap<>() : store.clients();
+        SyncPayload clientPayload = clients.getOrDefault(clientKey, emptyPayload());
+        Map<Long, SyncItem> items = toItemMap(clientPayload.items());
+        Map<Long, SyncList> lists = toListMap(clientPayload.lists());
+        Map<String, SyncListItem> listItems = toListItemMap(clientPayload.listItems());
+        Map<Long, SyncProgressLog> progressLogs = toProgressMap(clientPayload.progressLogs());
+        Map<Long, SyncLoan> loans = toLoanMap(clientPayload.loans());
+        Map<Long, SyncExternalLink> externalLinks = toExternalLinkMap(clientPayload.externalLinks());
+        Map<String, SyncDelete> tombstones = toDeleteMap(clientPayload.deletes());
 
         int conflicts = applyChanges(request.changes(), items, lists, listItems, progressLogs, loans, externalLinks, tombstones);
 
@@ -62,7 +65,9 @@ public class SyncRemoteService {
             new ArrayList<>(externalLinks.values()),
             new ArrayList<>(tombstones.values())
         );
-        saveStore(updatedStore);
+        Map<String, SyncPayload> updatedClients = new HashMap<>(clients);
+        updatedClients.put(clientKey, updatedStore);
+        saveStore(new SyncRemoteStore(updatedClients));
 
         SyncPayload delta = buildDelta(updatedStore, request.lastSyncAt());
         return new SyncResponse(OffsetDateTime.now(ZoneOffset.UTC), delta, conflicts);
@@ -78,7 +83,7 @@ public class SyncRemoteService {
         }
     }
 
-    private SyncPayload loadStore() {
+    private SyncRemoteStore loadStore() {
         try {
             String json = jdbcTemplate.queryForObject(
                 "SELECT payload::text FROM sync_remote_store WHERE id = ?",
@@ -86,11 +91,18 @@ public class SyncRemoteService {
                 STORE_ID
             );
             if (json == null || json.isBlank()) {
-                return emptyPayload();
+                return new SyncRemoteStore(new HashMap<>());
             }
-            return objectMapper.readValue(json, SyncPayload.class);
+            try {
+                return objectMapper.readValue(json, SyncRemoteStore.class);
+            } catch (JsonProcessingException ex) {
+                SyncPayload legacy = objectMapper.readValue(json, SyncPayload.class);
+                Map<String, SyncPayload> clients = new HashMap<>();
+                clients.put("default", legacy);
+                return new SyncRemoteStore(clients);
+            }
         } catch (EmptyResultDataAccessException ex) {
-            SyncPayload empty = emptyPayload();
+            SyncRemoteStore empty = new SyncRemoteStore(new HashMap<>());
             saveStore(empty);
             return empty;
         } catch (JsonProcessingException ex) {
@@ -98,9 +110,9 @@ public class SyncRemoteService {
         }
     }
 
-    private void saveStore(SyncPayload payload) {
+    private void saveStore(SyncRemoteStore store) {
         try {
-            String json = objectMapper.writeValueAsString(payload);
+            String json = objectMapper.writeValueAsString(store);
             jdbcTemplate.update("""
                 INSERT INTO sync_remote_store (id, payload, updated_at)
                 VALUES (?, ?::jsonb, ?)

@@ -23,8 +23,8 @@ public class ProgressService {
     }
 
     @Transactional
-    public ProgressLogResponse logProgress(Long itemId, ProgressLogRequest request) {
-        MediaItem item = itemRepository.findByIdAndDeletedAtIsNull(itemId)
+    public ProgressLogResponse logProgress(Long userId, Long itemId, ProgressLogRequest request) {
+        MediaItem item = itemRepository.findByIdAndDeletedAtIsNullAndOwner_Id(itemId, userId)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Item not found"));
         int total = item.getTotalValue() == null ? 0 : item.getTotalValue();
         if (total <= 0) {
@@ -47,8 +47,8 @@ public class ProgressService {
     }
 
     @Transactional(readOnly = true)
-    public List<ProgressLogResponse> history(Long itemId) {
-        itemRepository.findByIdAndDeletedAtIsNull(itemId)
+    public List<ProgressLogResponse> history(Long userId, Long itemId) {
+        itemRepository.findByIdAndDeletedAtIsNullAndOwner_Id(itemId, userId)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Item not found"));
         return progressRepository.findByItemIdOrderByLogDateDesc(itemId).stream()
             .map(log -> new ProgressLogResponse(log.getId(), log.getLogDate(), log.getDurationMinutes(), log.getPageOrMinute(), log.getPercent()))

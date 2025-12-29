@@ -16,7 +16,7 @@ public class SyncOutboxService {
     }
 
     @Transactional
-    public void enqueueDelete(String entityType, String entityKey) {
-        repository.save(new SyncOutboxEntry(entityType, entityKey, OP_DELETE));
+    public void enqueueDelete(Long userId, String entityType, String entityKey) {
+        repository.save(new SyncOutboxEntry(entityType, entityKey, OP_DELETE, userId));
     }
 }

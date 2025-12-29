@@ -108,10 +108,10 @@ export default function Search() {
         <div className="toolbar">
           <span>{total} results</span>
           <div className="pager">
-            <button disabled={page === 0} onClick={() => setPage(page - 1)}>
+            <button className="secondary" disabled={page === 0} onClick={() => setPage(page - 1)}>
               Prev
             </button>
-            <button disabled={(page + 1) * 12 >= total} onClick={() => setPage(page + 1)}>
+            <button className="secondary" disabled={(page + 1) * 12 >= total} onClick={() => setPage(page + 1)}>
               Next
             </button>
           </div>

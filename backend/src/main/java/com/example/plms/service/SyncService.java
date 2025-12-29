@@ -93,17 +93,17 @@ public class SyncService {
     }
 
     @Transactional
-    public SyncStatusResponse enable(boolean enabled) {
+    public SyncStatusResponse enable(Long userId, boolean enabled) {
         properties.setEnabled(enabled);
-        SyncState state = getOrCreateState();
+        SyncState state = getOrCreateState(userId);
         state.setLastStatus(enabled ? "enabled" : "disabled");
         syncStateRepository.save(state);
-        return status();
+        return status(userId);
     }
 
     @Transactional
-    public SyncStatusResponse runSync() {
-        SyncState state = getOrCreateState();
+    public SyncStatusResponse runSync(Long userId) {
+        SyncState state = getOrCreateState(userId);
         if (!properties.isEnabled()) {
             state.setLastStatus("disabled");
             syncStateRepository.save(state);
@@ -119,7 +119,7 @@ public class SyncService {
         }
         boolean fullSync = state.getLastSyncAt() == null || state.isNeedsFullSync();
         OffsetDateTime since = fullSync ? null : state.getLastSyncAt();
-        SyncPayload payload = fullSync ? buildFullPayload() : buildIncrementalPayload(since);
+        SyncPayload payload = fullSync ? buildFullPayload(userId) : buildIncrementalPayload(userId, since);
         SyncRequest request = new SyncRequest(state.getClientId(), since, payload);
 
         HttpHeaders headers = new HttpHeaders();
@@ -136,7 +136,7 @@ public class SyncService {
             );
             SyncResponse syncResponse = response.getBody();
             int remoteConflicts = syncResponse == null ? 0 : syncResponse.conflictCount();
-            int localConflicts = syncResponse == null ? 0 : applyRemoteChanges(syncResponse.changes());
+            int localConflicts = syncResponse == null ? 0 : applyRemoteChanges(userId, syncResponse.changes());
             if (syncResponse != null && syncResponse.changes() != null) {
                 updateSequences();
             }
@@ -146,7 +146,7 @@ public class SyncService {
                 ? syncResponse.serverTime()
                 : OffsetDateTime.now(ZoneOffset.UTC));
             state.setNeedsFullSync(false);
-            clearOutbox(fullSync, state.getLastSyncAt());
+            clearOutbox(userId, fullSync, state.getLastSyncAt());
             syncStateRepository.save(state);
             return toResponse(state);
         } catch (RestClientException ex) {
@@ -158,65 +158,96 @@ public class SyncService {
     }
 
     @Transactional(readOnly = true)
-    public SyncStatusResponse status() {
-        SyncState state = getOrCreateState();
+    public SyncStatusResponse status(Long userId) {
+        SyncState state = getOrCreateState(userId);
         return toResponse(state);
     }
 
-    private int applyRemoteChanges(SyncPayload payload) {
+    public void flushAllUsers() {
+        if (!properties.isEnabled()) {
+            return;
+        }
+        List<SyncState> states = syncStateRepository.findByUserIdIsNotNull();
+        for (SyncState state : states) {
+            try {
+                runSync(state.getUserId());
+            } catch (Exception ex) {
+                log.warn("Sync flush failed for user {}: {}", state.getUserId(), ex.getMessage());
+            }
+        }
+    }
+
+    private int applyRemoteChanges(Long userId, SyncPayload payload) {
         if (payload == null) {
             return 0;
         }
         int conflicts = 0;
-        conflicts += applyItems(payload.items());
-        conflicts += applyLists(payload.lists());
-        conflicts += applyListItems(payload.listItems());
-        conflicts += applyProgress(payload.progressLogs());
-        conflicts += applyLoans(payload.loans());
-        conflicts += applyExternalLinks(payload.externalLinks());
-        conflicts += applyDeletes(payload.deletes());
+        conflicts += applyItems(userId, payload.items());
+        conflicts += applyLists(userId, payload.lists());
+        conflicts += applyListItems(userId, payload.listItems());
+        conflicts += applyProgress(userId, payload.progressLogs());
+        conflicts += applyLoans(userId, payload.loans());
+        conflicts += applyExternalLinks(userId, payload.externalLinks());
+        conflicts += applyDeletes(userId, payload.deletes());
         return conflicts;
     }
 
-    private SyncState getOrCreateState() {
-        return syncStateRepository.findById(1).orElseGet(() -> syncStateRepository.save(new SyncState()));
+    private SyncState getOrCreateState(Long userId) {
+        return syncStateRepository.findByUserId(userId)
+            .orElseGet(() -> {
+                SyncState created = new SyncState();
+                created.setUserId(userId);
+                return syncStateRepository.save(created);
+            });
     }
 
     private SyncStatusResponse toResponse(SyncState state) {
         return new SyncStatusResponse(properties.isEnabled(), state.getLastSyncAt(), state.getLastStatus(), state.getLastConflictCount());
     }
 
-    private SyncPayload buildFullPayload() {
+    private SyncPayload buildFullPayload(Long userId) {
+        List<MediaItem> ownedItems = itemRepository.findAllByOwner_Id(userId);
+        List<Long> itemIds = ownedItems.stream().map(MediaItem::getId).toList();
+        List<MediaList> ownedLists = listRepository.findAllByOwner_Id(userId);
+        List<Long> listIds = ownedLists.stream().map(MediaList::getId).toList();
         return new SyncPayload(
             true,
-            itemRepository.findAll().stream().map(this::toSyncItem).toList(),
-            listRepository.findAll().stream().map(this::toSyncList).toList(),
-            listItemRepository.findAll().stream().map(this::toSyncListItem).toList(),
-            progressLogRepository.findAll().stream().map(this::toSyncProgressLog).toList(),
-            loanRepository.findAll().stream().map(this::toSyncLoan).toList(),
-            externalLinkRepository.findAll().stream().map(this::toSyncExternalLink).toList(),
+            ownedItems.stream().map(this::toSyncItem).toList(),
+            ownedLists.stream().map(this::toSyncList).toList(),
+            listIds.isEmpty() ? List.of() : listItemRepository.findByIdListIdIn(listIds).stream().map(this::toSyncListItem).toList(),
+            itemIds.isEmpty() ? List.of() : progressLogRepository.findByItemIdIn(itemIds).stream().map(this::toSyncProgressLog).toList(),
+            itemIds.isEmpty() ? List.of() : loanRepository.findByItemIdIn(itemIds).stream().map(this::toSyncLoan).toList(),
+            itemIds.isEmpty() ? List.of() : externalLinkRepository.findByItemIdIn(itemIds).stream().map(this::toSyncExternalLink).toList(),
             List.of()
         );
     }
 
-    private SyncPayload buildIncrementalPayload(OffsetDateTime since) {
+    private SyncPayload buildIncrementalPayload(Long userId, OffsetDateTime since) {
+        List<MediaItem> ownedItems = itemRepository.findAllByOwner_Id(userId);
+        List<Long> itemIds = ownedItems.stream().map(MediaItem::getId).toList();
+        List<MediaList> ownedLists = listRepository.findAllByOwner_Id(userId);
+        List<Long> listIds = ownedLists.stream().map(MediaList::getId).toList();
         return new SyncPayload(
             false,
-            filterByUpdatedAt(itemRepository.findAll().stream().map(this::toSyncItem).toList(), since),
-            filterByUpdatedAt(listRepository.findAll().stream().map(this::toSyncList).toList(), since),
-            filterByUpdatedAt(listItemRepository.findAll().stream().map(this::toSyncListItem).toList(), since),
-            filterByUpdatedAt(progressLogRepository.findAll().stream().map(this::toSyncProgressLog).toList(), since),
-            filterByUpdatedAt(loanRepository.findAll().stream().map(this::toSyncLoan).toList(), since),
-            filterByUpdatedAt(externalLinkRepository.findAll().stream().map(this::toSyncExternalLink).toList(), since),
-            loadDeletes(since)
+            filterByUpdatedAt(ownedItems.stream().map(this::toSyncItem).toList(), since),
+            filterByUpdatedAt(ownedLists.stream().map(this::toSyncList).toList(), since),
+            filterByUpdatedAt(listIds.isEmpty() ? List.of() : listItemRepository.findByIdListIdIn(listIds).stream()
+                .map(this::toSyncListItem).toList(), since),
+            filterByUpdatedAt(itemIds.isEmpty() ? List.of() : progressLogRepository.findByItemIdIn(itemIds).stream()
+                .map(this::toSyncProgressLog).toList(), since),
+            filterByUpdatedAt(itemIds.isEmpty() ? List.of() : loanRepository.findByItemIdIn(itemIds).stream()
+                .map(this::toSyncLoan).toList(), since),
+            filterByUpdatedAt(itemIds.isEmpty() ? List.of() : externalLinkRepository.findByItemIdIn(itemIds).stream()
+                .map(this::toSyncExternalLink).toList(), since),
+            loadDeletes(userId, since)
         );
     }
 
-    private List<SyncDelete> loadDeletes(OffsetDateTime since) {
+    private List<SyncDelete> loadDeletes(Long userId, OffsetDateTime since) {
         if (since == null) {
             return List.of();
         }
-        List<SyncOutboxEntry> entries = syncOutboxRepository.findByQueuedAtAfterOrderByQueuedAtAsc(since);
+        List<SyncOutboxEntry> entries = syncOutboxRepository.findByUserIdAndQueuedAtAfterOrderByQueuedAtAsc(userId, since);
         Map<String, SyncDelete> deduped = new LinkedHashMap<>();
         for (SyncOutboxEntry entry : entries) {
             String key = entry.getEntityType() + ":" + entry.getEntityKey();
@@ -228,12 +259,12 @@ public class SyncService {
         return new ArrayList<>(deduped.values());
     }
 
-    private void clearOutbox(boolean fullSync, OffsetDateTime syncedAt) {
+    private void clearOutbox(Long userId, boolean fullSync, OffsetDateTime syncedAt) {
         if (fullSync) {
-            syncOutboxRepository.deleteAll();
+            syncOutboxRepository.deleteAll(syncOutboxRepository.findByUserId(userId));
             return;
         }
-        List<SyncOutboxEntry> entries = syncOutboxRepository.findAll();
+        List<SyncOutboxEntry> entries = syncOutboxRepository.findByUserId(userId);
         List<SyncOutboxEntry> toDelete = new ArrayList<>();
         for (SyncOutboxEntry entry : entries) {
             if (entry.getQueuedAt().isBefore(syncedAt) || entry.getQueuedAt().isEqual(syncedAt)) {
@@ -366,7 +397,7 @@ public class SyncService {
         return null;
     }
 
-    private int applyItems(List<SyncItem> items) {
+    private int applyItems(Long userId, List<SyncItem> items) {
         if (items == null) {
             return 0;
         }
@@ -375,17 +406,21 @@ public class SyncService {
             if (item.id() == null || item.updatedAt() == null) {
                 continue;
             }
-            OffsetDateTime localUpdated = findUpdatedAt("media_item", "id", item.id());
+            if (ownedByOtherUser("media_item", item.id(), userId)) {
+                conflicts++;
+                continue;
+            }
+            OffsetDateTime localUpdated = findUpdatedAt("media_item", "id", item.id(), userId);
             if (localUpdated != null && !item.updatedAt().isAfter(localUpdated)) {
                 conflicts++;
                 continue;
             }
-            upsertItem(item);
+            upsertItem(userId, item);
         }
         return conflicts;
     }
 
-    private int applyLists(List<SyncList> lists) {
+    private int applyLists(Long userId, List<SyncList> lists) {
         if (lists == null) {
             return 0;
         }
@@ -394,20 +429,26 @@ public class SyncService {
             if (list.id() == null || list.updatedAt() == null) {
                 continue;
             }
-            OffsetDateTime localUpdated = findUpdatedAt("list", "id", list.id());
+            if (ownedByOtherUser("list", list.id(), userId)) {
+                conflicts++;
+                continue;
+            }
+            OffsetDateTime localUpdated = findUpdatedAt("list", "id", list.id(), userId);
             if (localUpdated != null && !list.updatedAt().isAfter(localUpdated)) {
                 conflicts++;
                 continue;
             }
             jdbcTemplate.update("""
-                INSERT INTO list (id, name, created_at, updated_at)
-                VALUES (?, ?, COALESCE((SELECT created_at FROM list WHERE id = ?), ?), ?)
+                INSERT INTO list (id, name, user_id, created_at, updated_at)
+                VALUES (?, ?, ?, COALESCE((SELECT created_at FROM list WHERE id = ?), ?), ?)
                 ON CONFLICT (id) DO UPDATE SET
                   name = EXCLUDED.name,
                   updated_at = EXCLUDED.updated_at
+                WHERE list.user_id = EXCLUDED.user_id
                 """,
                 list.id(),
                 list.name(),
+                userId,
                 list.id(),
                 OffsetDateTime.now(ZoneOffset.UTC),
                 list.updatedAt()
@@ -416,7 +457,7 @@ public class SyncService {
         return conflicts;
     }
 
-    private int applyListItems(List<SyncListItem> listItems) {
+    private int applyListItems(Long userId, List<SyncListItem> listItems) {
         if (listItems == null) {
             return 0;
         }
@@ -425,7 +466,11 @@ public class SyncService {
             if (item.listId() == null || item.itemId() == null || item.updatedAt() == null) {
                 continue;
             }
-            OffsetDateTime localUpdated = findListItemUpdatedAt(item.listId(), item.itemId());
+            if (!listOwnedByUser(userId, item.listId()) || !itemOwnedByUser(userId, item.itemId())) {
+                conflicts++;
+                continue;
+            }
+            OffsetDateTime localUpdated = findListItemUpdatedAt(userId, item.listId(), item.itemId());
             if (localUpdated != null && !item.updatedAt().isAfter(localUpdated)) {
                 conflicts++;
                 continue;
@@ -443,13 +488,17 @@ public class SyncService {
         return conflicts;
     }
 
-    private int applyProgress(List<SyncProgressLog> logs) {
+    private int applyProgress(Long userId, List<SyncProgressLog> logs) {
         if (logs == null) {
             return 0;
         }
         int conflicts = 0;
         for (SyncProgressLog log : logs) {
             if (log.id() == null || log.updatedAt() == null) {
+                continue;
+            }
+            if (!itemOwnedByUser(userId, log.itemId()) || ownedByOtherUserViaItem("progress_log", log.id(), userId)) {
+                conflicts++;
                 continue;
             }
             OffsetDateTime localUpdated = findUpdatedAt("progress_log", "id", log.id());
@@ -473,13 +522,17 @@ public class SyncService {
         return conflicts;
     }
 
-    private int applyLoans(List<SyncLoan> loans) {
+    private int applyLoans(Long userId, List<SyncLoan> loans) {
         if (loans == null) {
             return 0;
         }
         int conflicts = 0;
         for (SyncLoan loan : loans) {
             if (loan.id() == null || loan.updatedAt() == null) {
+                continue;
+            }
+            if (!itemOwnedByUser(userId, loan.itemId()) || ownedByOtherUserViaItem("loan", loan.id(), userId)) {
+                conflicts++;
                 continue;
             }
             OffsetDateTime localUpdated = findUpdatedAt("loan", "id", loan.id());
@@ -504,13 +557,17 @@ public class SyncService {
         return conflicts;
     }
 
-    private int applyExternalLinks(List<SyncExternalLink> links) {
+    private int applyExternalLinks(Long userId, List<SyncExternalLink> links) {
         if (links == null) {
             return 0;
         }
         int conflicts = 0;
         for (SyncExternalLink link : links) {
             if (link.id() == null || link.updatedAt() == null) {
+                continue;
+            }
+            if (!itemOwnedByUser(userId, link.itemId()) || ownedByOtherUserViaItem("external_link", link.id(), userId)) {
+                conflicts++;
                 continue;
             }
             OffsetDateTime localUpdated = findUpdatedAt("external_link", "id", link.id());
@@ -536,7 +593,7 @@ public class SyncService {
         return conflicts;
     }
 
-    private int applyDeletes(List<SyncDelete> deletes) {
+    private int applyDeletes(Long userId, List<SyncDelete> deletes) {
         if (deletes == null) {
             return 0;
         }
@@ -546,7 +603,11 @@ public class SyncService {
                 continue;
             }
             if ("LIST".equalsIgnoreCase(delete.entityType())) {
-                OffsetDateTime localUpdated = findUpdatedAt("list", "id", Long.valueOf(delete.entityKey()));
+                if (!listOwnedByUser(userId, Long.valueOf(delete.entityKey()))) {
+                    conflicts++;
+                    continue;
+                }
+                OffsetDateTime localUpdated = findUpdatedAt("list", "id", Long.valueOf(delete.entityKey()), userId);
                 if (localUpdated != null && localUpdated.isAfter(delete.deletedAt())) {
                     conflicts++;
                     continue;
@@ -561,7 +622,11 @@ public class SyncService {
                 }
                 Long listId = Long.valueOf(parts[0]);
                 Long itemId = Long.valueOf(parts[1]);
-                OffsetDateTime localUpdated = findListItemUpdatedAt(listId, itemId);
+                if (!listOwnedByUser(userId, listId) || !itemOwnedByUser(userId, itemId)) {
+                    conflicts++;
+                    continue;
+                }
+                OffsetDateTime localUpdated = findListItemUpdatedAt(userId, listId, itemId);
                 if (localUpdated != null && localUpdated.isAfter(delete.deletedAt())) {
                     conflicts++;
                     continue;
@@ -584,25 +649,96 @@ public class SyncService {
         }
     }
 
-    private OffsetDateTime findListItemUpdatedAt(Long listId, Long itemId) {
+    private OffsetDateTime findUpdatedAt(String table, String idColumn, Long id, Long userId) {
         try {
             return jdbcTemplate.queryForObject(
-                "SELECT updated_at FROM list_item WHERE list_id = ? AND item_id = ?",
+                "SELECT updated_at FROM " + table + " WHERE " + idColumn + " = ? AND user_id = ?",
                 OffsetDateTime.class,
-                listId,
-                itemId
+                id,
+                userId
             );
         } catch (Exception ex) {
             return null;
         }
     }
 
-    private void upsertItem(SyncItem item) {
+    private OffsetDateTime findListItemUpdatedAt(Long userId, Long listId, Long itemId) {
+        try {
+            return jdbcTemplate.queryForObject(
+                "SELECT li.updated_at FROM list_item li JOIN list l ON l.id = li.list_id WHERE li.list_id = ? AND li.item_id = ? AND l.user_id = ?",
+                OffsetDateTime.class,
+                listId,
+                itemId,
+                userId
+            );
+        } catch (Exception ex) {
+            return null;
+        }
+    }
+
+    private boolean itemOwnedByUser(Long userId, Long itemId) {
+        try {
+            Integer count = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM media_item WHERE id = ? AND user_id = ?",
+                Integer.class,
+                itemId,
+                userId
+            );
+            return count != null && count > 0;
+        } catch (Exception ex) {
+            return false;
+        }
+    }
+
+    private boolean listOwnedByUser(Long userId, Long listId) {
+        try {
+            Integer count = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM list WHERE id = ? AND user_id = ?",
+                Integer.class,
+                listId,
+                userId
+            );
+            return count != null && count > 0;
+        } catch (Exception ex) {
+            return false;
+        }
+    }
+
+    private boolean ownedByOtherUser(String table, Long id, Long userId) {
+        try {
+            Integer count = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM " + table + " WHERE id = ? AND user_id IS NOT NULL AND user_id <> ?",
+                Integer.class,
+                id,
+                userId
+            );
+            return count != null && count > 0;
+        } catch (Exception ex) {
+            return false;
+        }
+    }
+
+    private boolean ownedByOtherUserViaItem(String table, Long id, Long userId) {
+        try {
+            Integer count = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM " + table + " t JOIN media_item mi ON mi.id = t.item_id WHERE t.id = ? AND mi.user_id <> ?",
+                Integer.class,
+                id,
+                userId
+            );
+            return count != null && count > 0;
+        } catch (Exception ex) {
+            return false;
+        }
+    }
+
+    private void upsertItem(Long userId, SyncItem item) {
         jdbcTemplate.update("""
-            INSERT INTO media_item (id, type, title, year, condition, location, status, deleted_at, created_at, updated_at,
+            INSERT INTO media_item (id, user_id, type, title, year, condition, location, status, deleted_at, created_at, updated_at,
               progress_percent, progress_value, total_value)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (id) DO UPDATE SET
+              user_id = EXCLUDED.user_id,
               type = EXCLUDED.type,
               title = EXCLUDED.title,
               year = EXCLUDED.year,
@@ -614,8 +750,9 @@ public class SyncService {
               progress_percent = EXCLUDED.progress_percent,
               progress_value = EXCLUDED.progress_value,
               total_value = EXCLUDED.total_value
+            WHERE media_item.user_id = EXCLUDED.user_id
             """,
-            item.id(), item.type().name(), item.title(), item.year(), item.condition(), item.location(),
+            item.id(), userId, item.type().name(), item.title(), item.year(), item.condition(), item.location(),
             item.status().name(), item.deletedAt(), item.createdAt() == null ? OffsetDateTime.now(ZoneOffset.UTC) : item.createdAt(),
             item.updatedAt(), item.progressPercent(), item.progressValue(), item.totalValue());
 

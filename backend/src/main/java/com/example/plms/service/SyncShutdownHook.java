@@ -24,7 +24,7 @@ public class SyncShutdownHook {
             return;
         }
         try {
-            syncService.runSync();
+            syncService.flushAllUsers();
         } catch (Exception ex) {
             log.warn("Sync flush on shutdown failed: {}", ex.getMessage());
         }

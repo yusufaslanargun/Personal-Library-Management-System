@@ -239,7 +239,7 @@ export default function ItemDetail() {
         <div className="card">
           <h3>External Data</h3>
           <p className="muted">Sync metadata from providers.</p>
-          <button onClick={refreshExternal}>Refresh</button>
+          <button className="secondary" onClick={refreshExternal}>Refresh</button>
           {diffs.length > 0 && (
             <div className="diffs">
               {diffs.map((diff) => (
@@ -315,7 +315,7 @@ export default function ItemDetail() {
               <p>
                 Loaned to <strong>{activeLoan.toWhom}</strong> until {activeLoan.dueDate}.
               </p>
-              <button onClick={returnLoan}>Mark Returned</button>
+              <button className="secondary" onClick={returnLoan}>Mark Returned</button>
             </div>
           ) : (
             <div>

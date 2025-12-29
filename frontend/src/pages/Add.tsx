@@ -107,7 +107,7 @@ export default function Add() {
           <h3>ISBN Lookup (Open Library)</h3>
           <div className="inline">
             <input value={isbn} onChange={(e) => setIsbn(e.target.value)} placeholder="ISBN or barcode" />
-            <button onClick={lookup}>Lookup</button>
+            <button className="secondary" onClick={lookup}>Lookup</button>
           </div>
           {isbnError && <div className="banner error">{isbnError}</div>}
           {candidates.length === 0 ? (

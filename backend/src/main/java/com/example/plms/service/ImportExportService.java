@@ -1,6 +1,7 @@
 package com.example.plms.service;
 
 import com.example.plms.domain.MediaItem;
+import com.example.plms.domain.MediaList;
 import com.example.plms.repository.MediaItemRepository;
 import com.example.plms.repository.MediaListRepository;
 import com.example.plms.repository.ProgressLogRepository;
@@ -46,6 +47,8 @@ import org.apache.commons.csv.CSVRecord;
 import org.springframework.dao.DataAccessException;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
+import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
@@ -68,6 +71,7 @@ public class ImportExportService {
     private final ExternalLinkRepository externalLinkRepository;
     private final SyncStateRepository syncStateRepository;
     private final JdbcTemplate jdbcTemplate;
+    private final NamedParameterJdbcTemplate namedParameterJdbcTemplate;
     private final ObjectMapper objectMapper;
 
     public ImportExportService(MediaItemRepository itemRepository,
@@ -77,6 +81,7 @@ public class ImportExportService {
                                ExternalLinkRepository externalLinkRepository,
                                SyncStateRepository syncStateRepository,
                                JdbcTemplate jdbcTemplate,
+                               NamedParameterJdbcTemplate namedParameterJdbcTemplate,
                                ObjectMapper objectMapper) {
         this.itemRepository = itemRepository;
         this.listRepository = listRepository;
@@ -85,37 +90,51 @@ public class ImportExportService {
         this.externalLinkRepository = externalLinkRepository;
         this.syncStateRepository = syncStateRepository;
         this.jdbcTemplate = jdbcTemplate;
+        this.namedParameterJdbcTemplate = namedParameterJdbcTemplate;
         this.objectMapper = objectMapper;
     }
 
     @Transactional(readOnly = true)
-    public ExportBundle exportBundle() {
-        List<ExportItem> items = itemRepository.findAll().stream().map(this::toExportItem).toList();
-        List<ExportList> lists = listRepository.findAll().stream()
+    public ExportBundle exportBundle(Long userId) {
+        List<MediaItem> ownedItems = itemRepository.findAllByOwner_Id(userId);
+        List<Long> itemIds = ownedItems.stream().map(MediaItem::getId).toList();
+        List<ExportItem> items = ownedItems.stream().map(this::toExportItem).toList();
+        List<MediaList> ownedLists = listRepository.findAllByOwner_Id(userId);
+        List<Long> listIds = ownedLists.stream().map(MediaList::getId).toList();
+        List<ExportList> lists = ownedLists.stream()
             .map(list -> new ExportList(list.getId(), list.getName()))
             .toList();
-        List<ExportListItem> listItems = jdbcTemplate.query(
-            "SELECT list_id, item_id, position, priority FROM list_item",
-            (rs, rowNum) -> new ExportListItem(rs.getLong("list_id"), rs.getLong("item_id"),
-                rs.getInt("position"), rs.getInt("priority"))
-        );
-        List<ExportProgressLog> progressLogs = progressRepository.findAll().stream()
-            .map(log -> new ExportProgressLog(log.getId(), log.getItem().getId(), log.getLogDate(),
-                log.getDurationMinutes(), log.getPageOrMinute(), log.getPercent()))
-            .toList();
-        List<ExportLoan> loans = loanRepository.findAll().stream()
-            .map(loan -> new ExportLoan(loan.getId(), loan.getItem().getId(), loan.getToWhom(),
-                loan.getStartDate(), loan.getDueDate(), loan.getReturnedAt(), loan.getStatus()))
-            .toList();
-        List<ExportExternalLink> externalLinks = externalLinkRepository.findAll().stream()
-            .map(link -> new ExportExternalLink(link.getId(), link.getItem().getId(), link.getProvider(),
-                link.getExternalId(), link.getUrl(), link.getRating(), link.getSummary(), link.getLastSyncAt()))
-            .toList();
+        List<ExportListItem> listItems = listIds.isEmpty()
+            ? List.of()
+            : namedParameterJdbcTemplate.query(
+                "SELECT list_id, item_id, position, priority FROM list_item WHERE list_id IN (:ids)",
+                new MapSqlParameterSource("ids", listIds),
+                (rs, rowNum) -> new ExportListItem(rs.getLong("list_id"), rs.getLong("item_id"),
+                    rs.getInt("position"), rs.getInt("priority"))
+            );
+        List<ExportProgressLog> progressLogs = itemIds.isEmpty()
+            ? List.of()
+            : progressRepository.findByItemIdIn(itemIds).stream()
+                .map(log -> new ExportProgressLog(log.getId(), log.getItem().getId(), log.getLogDate(),
+                    log.getDurationMinutes(), log.getPageOrMinute(), log.getPercent()))
+                .toList();
+        List<ExportLoan> loans = itemIds.isEmpty()
+            ? List.of()
+            : loanRepository.findByItemIdIn(itemIds).stream()
+                .map(loan -> new ExportLoan(loan.getId(), loan.getItem().getId(), loan.getToWhom(),
+                    loan.getStartDate(), loan.getDueDate(), loan.getReturnedAt(), loan.getStatus()))
+                .toList();
+        List<ExportExternalLink> externalLinks = itemIds.isEmpty()
+            ? List.of()
+            : externalLinkRepository.findByItemIdIn(itemIds).stream()
+                .map(link -> new ExportExternalLink(link.getId(), link.getItem().getId(), link.getProvider(),
+                    link.getExternalId(), link.getUrl(), link.getRating(), link.getSummary(), link.getLastSyncAt()))
+                .toList();
         return new ExportBundle("1", OffsetDateTime.now(), items, lists, listItems, progressLogs, loans, externalLinks);
     }
 
-    public byte[] exportCsvZip() {
-        ExportBundle bundle = exportBundle();
+    public byte[] exportCsvZip(Long userId) {
+        ExportBundle bundle = exportBundle(userId);
         try (ByteArrayOutputStream baos = new ByteArrayOutputStream();
              ZipOutputStream zipOut = new ZipOutputStream(baos)) {
             writeCsv(zipOut, CSV_ITEMS, printer -> writeItemsCsv(printer, bundle.items()));
@@ -131,16 +150,16 @@ public class ImportExportService {
         }
     }
 
-    public ImportSummary importJson(byte[] payload) {
+    public ImportSummary importJson(Long userId, byte[] payload) {
         try {
             ExportBundle bundle = objectMapper.readValue(payload, ExportBundle.class);
-            return importBundle(bundle);
+            return importBundle(userId, bundle);
         } catch (IOException ex) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid JSON format");
         }
     }
 
-    public ImportSummary importCsv(byte[] payload) {
+    public ImportSummary importCsv(Long userId, byte[] payload) {
         Map<String, List<CSVRecord>> recordsByFile = new HashMap<>();
         try (ZipInputStream zipIn = new ZipInputStream(new ByteArrayInputStream(payload))) {
             ZipEntry entry;
@@ -167,21 +186,108 @@ public class ImportExportService {
             parseLoansCsv(recordsByFile.get(CSV_LOANS)),
             parseExternalCsv(recordsByFile.get(CSV_EXTERNAL))
         );
-        return importBundle(bundle);
+        return importBundle(userId, bundle);
     }
 
     @Transactional
-    public ImportSummary importBundle(ExportBundle bundle) {
+    public ImportSummary importBundle(Long userId, ExportBundle bundle) {
         List<String> errors = validateBundle(bundle);
         if (!errors.isEmpty()) {
             return new ImportSummary(0, 0, 0, errors);
         }
 
-        Set<Long> existingItems = new HashSet<>(jdbcTemplate.queryForList("SELECT id FROM media_item", Long.class));
-        Set<Long> existingLists = new HashSet<>(jdbcTemplate.queryForList("SELECT id FROM list", Long.class));
-        Set<Long> existingProgress = new HashSet<>(jdbcTemplate.queryForList("SELECT id FROM progress_log", Long.class));
-        Set<Long> existingLoans = new HashSet<>(jdbcTemplate.queryForList("SELECT id FROM loan", Long.class));
-        Set<Long> existingExternal = new HashSet<>(jdbcTemplate.queryForList("SELECT id FROM external_link", Long.class));
+        List<Long> conflictItems = jdbcTemplate.queryForList(
+            "SELECT id FROM media_item WHERE user_id IS NOT NULL AND user_id <> ?",
+            Long.class,
+            userId
+        );
+        List<Long> conflictLists = jdbcTemplate.queryForList(
+            "SELECT id FROM list WHERE user_id IS NOT NULL AND user_id <> ?",
+            Long.class,
+            userId
+        );
+        List<Long> conflictProgress = jdbcTemplate.queryForList(
+            "SELECT pl.id FROM progress_log pl JOIN media_item mi ON mi.id = pl.item_id WHERE mi.user_id <> ?",
+            Long.class,
+            userId
+        );
+        List<Long> conflictLoans = jdbcTemplate.queryForList(
+            "SELECT l.id FROM loan l JOIN media_item mi ON mi.id = l.item_id WHERE mi.user_id <> ?",
+            Long.class,
+            userId
+        );
+        List<Long> conflictExternal = jdbcTemplate.queryForList(
+            "SELECT el.id FROM external_link el JOIN media_item mi ON mi.id = el.item_id WHERE mi.user_id <> ?",
+            Long.class,
+            userId
+        );
+        Set<Long> conflictItemIds = new HashSet<>(conflictItems);
+        Set<Long> conflictListIds = new HashSet<>(conflictLists);
+        Set<Long> conflictProgressIds = new HashSet<>(conflictProgress);
+        Set<Long> conflictLoanIds = new HashSet<>(conflictLoans);
+        Set<Long> conflictExternalIds = new HashSet<>(conflictExternal);
+        for (ExportItem item : bundle.items()) {
+            if (item.id() != null && conflictItemIds.contains(item.id())) {
+                errors.add("item id already belongs to another user: " + item.id());
+            }
+        }
+        if (bundle.lists() != null) {
+            for (ExportList list : bundle.lists()) {
+                if (list.id() != null && conflictListIds.contains(list.id())) {
+                    errors.add("list id already belongs to another user: " + list.id());
+                }
+            }
+        }
+        if (bundle.progressLogs() != null) {
+            for (ExportProgressLog log : bundle.progressLogs()) {
+                if (log.id() != null && conflictProgressIds.contains(log.id())) {
+                    errors.add("progress log id already belongs to another user: " + log.id());
+                }
+            }
+        }
+        if (bundle.loans() != null) {
+            for (ExportLoan loan : bundle.loans()) {
+                if (loan.id() != null && conflictLoanIds.contains(loan.id())) {
+                    errors.add("loan id already belongs to another user: " + loan.id());
+                }
+            }
+        }
+        if (bundle.externalLinks() != null) {
+            for (ExportExternalLink link : bundle.externalLinks()) {
+                if (link.id() != null && conflictExternalIds.contains(link.id())) {
+                    errors.add("external link id already belongs to another user: " + link.id());
+                }
+            }
+        }
+        if (!errors.isEmpty()) {
+            return new ImportSummary(0, 0, 0, errors);
+        }
+
+        Set<Long> existingItems = new HashSet<>(jdbcTemplate.queryForList(
+            "SELECT id FROM media_item WHERE user_id = ?",
+            Long.class,
+            userId
+        ));
+        Set<Long> existingLists = new HashSet<>(jdbcTemplate.queryForList(
+            "SELECT id FROM list WHERE user_id = ?",
+            Long.class,
+            userId
+        ));
+        Set<Long> existingProgress = new HashSet<>(jdbcTemplate.queryForList(
+            "SELECT pl.id FROM progress_log pl JOIN media_item mi ON mi.id = pl.item_id WHERE mi.user_id = ?",
+            Long.class,
+            userId
+        ));
+        Set<Long> existingLoans = new HashSet<>(jdbcTemplate.queryForList(
+            "SELECT l.id FROM loan l JOIN media_item mi ON mi.id = l.item_id WHERE mi.user_id = ?",
+            Long.class,
+            userId
+        ));
+        Set<Long> existingExternal = new HashSet<>(jdbcTemplate.queryForList(
+            "SELECT el.id FROM external_link el JOIN media_item mi ON mi.id = el.item_id WHERE mi.user_id = ?",
+            Long.class,
+            userId
+        ));
 
         int added = 0;
         int updated = 0;
@@ -192,7 +298,7 @@ public class ImportExportService {
             } else {
                 added++;
             }
-            upsertItem(item);
+            upsertItem(userId, item);
             upsertBookInfo(item.bookInfo());
             upsertDvdInfo(item.dvdInfo());
             upsertTags(item.id(), item.tags());
@@ -205,11 +311,12 @@ public class ImportExportService {
                 added++;
             }
             jdbcTemplate.update("""
-                INSERT INTO list (id, name, created_at, updated_at)
-                VALUES (?, ?, COALESCE((SELECT created_at FROM list WHERE id = ?), ?), ?)
+                INSERT INTO list (id, name, user_id, created_at, updated_at)
+                VALUES (?, ?, ?, COALESCE((SELECT created_at FROM list WHERE id = ?), ?), ?)
                 ON CONFLICT (id) DO UPDATE
                 SET name = EXCLUDED.name, updated_at = EXCLUDED.updated_at
-                """, list.id(), list.name(), list.id(), OffsetDateTime.now(), OffsetDateTime.now());
+                WHERE list.user_id = EXCLUDED.user_id
+                """, list.id(), list.name(), userId, list.id(), OffsetDateTime.now(), OffsetDateTime.now());
         }
 
         for (ExportListItem listItem : bundle.listItems()) {
@@ -285,16 +392,17 @@ public class ImportExportService {
         }
 
         updateSequences();
-        markNeedsFullSync();
+        markNeedsFullSync(userId);
         return new ImportSummary(added, updated, 0, List.of());
     }
 
-    private void upsertItem(ExportItem item) {
+    private void upsertItem(Long userId, ExportItem item) {
         jdbcTemplate.update("""
-            INSERT INTO media_item (id, type, title, year, condition, location, status, deleted_at, created_at, updated_at,
+            INSERT INTO media_item (id, user_id, type, title, year, condition, location, status, deleted_at, created_at, updated_at,
               progress_percent, progress_value, total_value)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (id) DO UPDATE SET
+              user_id = EXCLUDED.user_id,
               type = EXCLUDED.type,
               title = EXCLUDED.title,
               year = EXCLUDED.year,
@@ -307,8 +415,9 @@ public class ImportExportService {
               progress_percent = EXCLUDED.progress_percent,
               progress_value = EXCLUDED.progress_value,
               total_value = EXCLUDED.total_value
+            WHERE media_item.user_id = EXCLUDED.user_id
             """,
-            item.id(), item.type().name(), item.title(), item.year(), item.condition(), item.location(),
+            item.id(), userId, item.type().name(), item.title(), item.year(), item.condition(), item.location(),
             item.status().name(), item.deletedAt(), item.createdAt(), item.updatedAt(),
             item.progressPercent(), item.progressValue(), item.totalValue());
     }
@@ -383,8 +492,13 @@ public class ImportExportService {
         jdbcTemplate.execute("SELECT setval(pg_get_serial_sequence('tag','id'), COALESCE(MAX(id), 1)) FROM tag");
     }
 
-    private void markNeedsFullSync() {
-        SyncState state = syncStateRepository.findById(1).orElseGet(() -> syncStateRepository.save(new SyncState()));
+    private void markNeedsFullSync(Long userId) {
+        SyncState state = syncStateRepository.findByUserId(userId)
+            .orElseGet(() -> {
+                SyncState created = new SyncState();
+                created.setUserId(userId);
+                return syncStateRepository.save(created);
+            });
         state.setNeedsFullSync(true);
         syncStateRepository.save(state);
     }

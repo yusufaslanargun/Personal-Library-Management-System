@@ -36,7 +36,7 @@ export default function Trash() {
             {items.map((item) => (
               <li key={item.id}>
                 <span>{item.title}</span>
-                <button onClick={() => restore(item.id)}>Restore</button>
+                <button className="secondary" onClick={() => restore(item.id)}>Restore</button>
               </li>
             ))}
           </ul>
