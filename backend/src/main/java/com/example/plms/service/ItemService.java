@@ -131,9 +131,11 @@ public class ItemService {
     }
 
     private void applyBookInfo(MediaItem item, BookInfoRequest request) {
-        if (request == null) {
-            return;
+        // Kitap bilgisi hiç gelmemişse veya sayfa sayısı eksikse hata fırlat
+        if (request == null || request.pages() == null || request.pages() <= 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Page count is required for books");
         }
+        
         BookInfo info = item.getBookInfo();
         if (info == null) {
             info = new BookInfo(item);
@@ -142,19 +144,21 @@ public class ItemService {
         info.setIsbn(request.isbn());
         info.setPages(request.pages());
         info.setPublisher(request.publisher());
+        
         if (request.authors() != null) {
             info.setAuthors(request.authors());
             info.setAuthorsText(String.join(", ", request.authors()));
         }
-        if (request.pages() != null) {
-            item.setTotalValue(request.pages());
-        }
+        
+        item.setTotalValue(request.pages());
     }
 
     private void applyDvdInfo(MediaItem item, DvdInfoRequest request) {
-        if (request == null) {
-            return;
+        // DVD bilgisi hiç gelmemişse veya süre eksikse hata fırlat
+        if (request == null || request.runtime() == null || request.runtime() <= 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Runtime is required for DVDs");
         }
+        
         DvdInfo info = item.getDvdInfo();
         if (info == null) {
             info = new DvdInfo(item);
@@ -162,11 +166,11 @@ public class ItemService {
         }
         info.setRuntime(request.runtime());
         info.setDirector(request.director());
+        
         if (request.cast() != null) {
             info.setCast(request.cast());
         }
-        if (request.runtime() != null) {
-            item.setTotalValue(request.runtime());
-        }
+        
+        item.setTotalValue(request.runtime());
     }
 }

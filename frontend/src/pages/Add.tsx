@@ -64,7 +64,35 @@ export default function Add() {
   }
 
   const createManual = async () => {
+    // Önceki hataları temizle
     setManualError('')
+    setCreated(null)
+
+    // --- 1. ADIM: FRONTEND DOĞRULAMA (VALIDATION) ---
+    if (!manual.title.trim()) {
+      setManualError('Title is required.')
+      return
+    }
+
+    if (!manual.year || isNaN(Number(manual.year))) {
+      setManualError('Please enter a valid year.')
+      return
+    }
+
+    if (manualType === 'BOOK') {
+      // Sayfa sayısı zorunluluğu
+      if (!manual.pages || Number(manual.pages) <= 0) {
+        setManualError('Page number is required and must be greater than 0 for books.')
+        return
+      }
+    } else {
+      // DVD için süre zorunluluğu
+      if (!manual.runtime || Number(manual.runtime) <= 0) {
+        setManualError('Runtime is required and must be greater than 0 for DVDs.')
+        return
+      }
+    }
+
     try {
       const payload: any = {
         type: manualType,
@@ -74,22 +102,32 @@ export default function Add() {
         location: manual.location || undefined,
         tags: manual.tags ? manual.tags.split(',').map((t) => t.trim()).filter(Boolean) : []
       }
+
       if (manualType === 'BOOK') {
         payload.bookInfo = {
           isbn: manual.isbn || undefined,
-          pages: manual.pages ? Number(manual.pages) : undefined,
+          pages: Number(manual.pages),
           publisher: manual.publisher || undefined,
           authors: manual.authors ? manual.authors.split(',').map((t) => t.trim()).filter(Boolean) : []
         }
       } else {
         payload.dvdInfo = {
-          runtime: manual.runtime ? Number(manual.runtime) : undefined,
+          runtime: Number(manual.runtime),
           director: manual.director || undefined,
           cast: manual.cast ? manual.cast.split(',').map((t) => t.trim()).filter(Boolean) : []
         }
       }
+
+      // --- 3. ADIM: API İSTEĞİ ---
       const response = await apiPost<Item>('/items', payload)
       setCreated(response)
+      
+      // Başarılı olduktan sonra formu temizlemek istersen:
+      setManual({
+        title: '', year: '', condition: '', location: '', tags: '',
+        isbn: '', pages: '', publisher: '', authors: '',
+        runtime: '', director: '', cast: ''
+      })
     } catch (err: any) {
       setManualError(err.message)
     }

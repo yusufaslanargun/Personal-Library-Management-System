@@ -78,6 +78,20 @@ export default function Lists() {
     reorder(items.map((item) => item.itemId))
   }
 
+  const removeItem = async (itemId: number) => {
+  if (!selected) return;
+  
+  const confirmed = window.confirm("Are you sure you want to remove this item from the list?");
+  if (!confirmed) return;
+
+  try {
+    await apiDelete(`/lists/${selected.id}/items/${itemId}`);
+    load(); // Listeyi güncelle
+  } catch (err: any) {
+    setError(err.message);
+  }
+};
+
   return (
     <div className="stack">
       <div className="hero">
@@ -135,6 +149,7 @@ export default function Lists() {
                         <div className="actions">
                           <button className="ghost small" onClick={() => move(index, -1)}>Up</button>
                           <button className="ghost small" onClick={() => move(index, 1)}>Down</button>
+                          <button  className="ghost small" onClick={() => removeItem(item.itemId)} style={{ marginLeft: '8px' , color: '#ff6b6b' }}>Remove</button>
                         </div>
                       </li>
                     )

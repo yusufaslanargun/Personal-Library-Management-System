@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { apiGet, apiPost } from '../api'
 import { Loan } from '../types'
 
-type LoanFilter = 'ALL' | 'ACTIVE' | 'RETURNED'
+type LoanFilter = 'ALL' | 'ACTIVE' | 'RETURNED' | 'REMOVED'
 
 export default function Loans() {
   const [loans, setLoans] = useState<Loan[]>([])

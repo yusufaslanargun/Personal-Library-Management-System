@@ -67,6 +67,7 @@ public class LoanService {
     @Transactional(readOnly = true)
     public List<LoanResponse> overdue(Long userId) {
         return loanRepository.findOverdueForOwner(LocalDate.now(), userId).stream()
+            .filter(loan -> loan.getItem().getDeletedAt() == null) // Filtre eklendi
             .map(this::toResponse)
             .toList();
     }
@@ -83,7 +84,12 @@ public class LoanService {
         List<Loan> loans = status == null
             ? loanRepository.findAllForOwner(userId)
             : loanRepository.findByStatusForOwner(status, userId);
-        return loans.stream().map(this::toResponse).toList();
+
+        return loans.stream()
+            // SADECE SİLİNMEMİŞ ÜRÜNLERİ FİLTRELE:
+            .filter(loan -> loan.getItem().getDeletedAt() == null)
+            .map(this::toResponse)
+            .toList();
     }
 
     private LoanResponse toResponse(Loan loan) {

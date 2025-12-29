@@ -17,6 +17,7 @@ export default function ItemDetail() {
   const [history, setHistory] = useState<ProgressLog[]>([])
   const [activeLoan, setActiveLoan] = useState<Loan | null>(null)
   const [error, setError] = useState('')
+  const [success, setSuccess] = useState('')
   const [diffs, setDiffs] = useState<DiffField[]>([])
   const [selectedFields, setSelectedFields] = useState<string[]>([])
   const [progressForm, setProgressForm] = useState({
@@ -53,6 +54,7 @@ export default function ItemDetail() {
   const saveItem = async () => {
     if (!item) return
     setError('')
+    setSuccess('')
     try {
       const payload: any = {
         title: item.title,
@@ -65,6 +67,11 @@ export default function ItemDetail() {
       }
       const updated = await apiPut<Item>(`/items/${item.id}`, payload)
       setItem(updated)
+      
+      setSuccess('Item details have been updated')
+      
+      setTimeout(() => setSuccess(''), 3000)
+
     } catch (err: any) {
       setError(err.message)
     }
@@ -188,6 +195,7 @@ export default function ItemDetail() {
         )}
       </div>
       {error && <div className="banner error">{error}</div>}
+      {success && <div className="banner success">{success}</div>} {}
 
       <div className="grid two">
         <div className="card">

@@ -149,13 +149,16 @@ public class ListService {
     private MediaListResponse toResponse(MediaList list) {
         List<ListItem> items = listItemRepository.findByIdListIdOrderByPosition(list.getId());
         List<ListItemResponse> responses = new ArrayList<>();
+        
         for (ListItem item : items) {
-            responses.add(new ListItemResponse(
-                item.getItem().getId(),
-                item.getItem().getTitle(),
-                item.getPosition(),
-                item.getPriority()
-            ));
+            if (item.getItem().getDeletedAt() == null) {
+                responses.add(new ListItemResponse(
+                    item.getItem().getId(),
+                    item.getItem().getTitle(),
+                    item.getPosition(),
+                    item.getPriority()
+                ));
+            }
         }
         return new MediaListResponse(list.getId(), list.getName(), responses);
     }
