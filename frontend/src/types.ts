@@ -76,6 +76,8 @@ export interface ProgressLog {
 export interface Loan {
   id: number
   itemId: number
+  itemTitle?: string
+  itemType?: MediaType
   toWhom: string
   startDate: string
   dueDate: string

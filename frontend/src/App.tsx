@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import Dashboard from './pages/Dashboard'
 import Search from './pages/Search'
 import Add from './pages/Add'
+import Loans from './pages/Loans'
 import Lists from './pages/Lists'
 import Settings from './pages/Settings'
 import Trash from './pages/Trash'
@@ -21,6 +22,7 @@ export default function App() {
     { to: '/', label: 'Dashboard', end: true },
     { to: '/search', label: 'Search' },
     { to: '/add', label: 'Add' },
+    { to: '/loans', label: 'Loans' },
     { to: '/lists', label: 'Lists' },
     { to: '/settings', label: 'Settings' },
     { to: '/trash', label: 'Trash' }
@@ -132,6 +134,7 @@ export default function App() {
           <Route path="/" element={<Dashboard />} />
           <Route path="/search" element={<Search />} />
           <Route path="/add" element={<Add />} />
+          <Route path="/loans" element={<Loans />} />
           <Route path="/items/:id" element={<ItemDetail />} />
           <Route path="/lists" element={<Lists />} />
           <Route path="/settings" element={<Settings />} />

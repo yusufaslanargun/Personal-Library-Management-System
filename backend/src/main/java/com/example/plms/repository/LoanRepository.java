@@ -1,6 +1,7 @@
 package com.example.plms.repository;
 
 import com.example.plms.domain.Loan;
+import com.example.plms.domain.LoanStatus;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
@@ -38,4 +39,21 @@ public interface LoanRepository extends JpaRepository<Loan, Long> {
           and l.dueDate < :date
         """)
     List<Loan> findOverdueForOwner(@Param("date") LocalDate date, @Param("ownerId") Long ownerId);
+
+    @Query("""
+        select l from Loan l
+        join l.item i
+        where i.owner.id = :ownerId
+        order by l.startDate desc
+        """)
+    List<Loan> findAllForOwner(@Param("ownerId") Long ownerId);
+
+    @Query("""
+        select l from Loan l
+        join l.item i
+        where i.owner.id = :ownerId
+          and l.status = :status
+        order by l.startDate desc
+        """)
+    List<Loan> findByStatusForOwner(@Param("status") LoanStatus status, @Param("ownerId") Long ownerId);
 }

@@ -538,6 +538,11 @@ label {
   color: #8b1c13;
 }
 
+.status-badge.overdue {
+  background: rgba(180, 35, 24, 0.2);
+  color: #7a1c13;
+}
+
 .status {
   color: var(--muted);
 }

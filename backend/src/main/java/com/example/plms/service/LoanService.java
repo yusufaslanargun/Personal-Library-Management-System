@@ -78,10 +78,20 @@ public class LoanService {
         return toResponse(loan);
     }
 
+    @Transactional(readOnly = true)
+    public List<LoanResponse> list(Long userId, LoanStatus status) {
+        List<Loan> loans = status == null
+            ? loanRepository.findAllForOwner(userId)
+            : loanRepository.findByStatusForOwner(status, userId);
+        return loans.stream().map(this::toResponse).toList();
+    }
+
     private LoanResponse toResponse(Loan loan) {
         return new LoanResponse(
             loan.getId(),
             loan.getItem().getId(),
+            loan.getItem().getTitle(),
+            loan.getItem().getType(),
             loan.getToWhom(),
             loan.getStartDate(),
             loan.getDueDate(),
