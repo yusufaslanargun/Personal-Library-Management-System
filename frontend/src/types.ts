@@ -70,6 +70,7 @@ export interface ProgressLog {
   durationMinutes?: number
   pageOrMinute: number
   percent: number
+  readerName?: string
 }
 
 export interface Loan {

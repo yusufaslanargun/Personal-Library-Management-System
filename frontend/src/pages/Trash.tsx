@@ -35,7 +35,13 @@ export default function Trash() {
           <ul className="list">
             {items.map((item) => (
               <li key={item.id}>
-                <span>{item.title}</span>
+                <div className="item-info">
+                  <span className="item-title">{item.title}</span>
+                  <div className="item-meta">
+                    <span className={`pill small ${item.type === 'BOOK' ? 'book' : 'dvd'}`}>{item.type}</span>
+                    <span>{item.year}</span>
+                  </div>
+                </div>
                 <button className="secondary" onClick={() => restore(item.id)}>Restore</button>
               </li>
             ))}

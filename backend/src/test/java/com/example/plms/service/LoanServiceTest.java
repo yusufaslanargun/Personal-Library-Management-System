@@ -41,7 +41,7 @@ class LoanServiceTest {
         MediaItem item = new MediaItem(MediaType.BOOK, "Test", 2020);
         when(itemRepository.findByIdAndDeletedAtIsNullAndOwner_Id(1L, userId)).thenReturn(Optional.of(item));
         com.example.plms.domain.Loan existingLoan = new com.example.plms.domain.Loan(item, "Alex", LocalDate.now(), LocalDate.now().plusDays(3));
-        when(loanRepository.findFirstByItemIdAndReturnedAtIsNullAndItemOwner_Id(1L, userId)).thenReturn(Optional.of(existingLoan));
+        when(loanRepository.findActiveLoanForOwner(1L, userId)).thenReturn(Optional.of(existingLoan));
 
         LoanRequest request = new LoanRequest("Alex", LocalDate.now(), LocalDate.now().plusDays(3));
         assertThrows(ResponseStatusException.class, () -> loanService.createLoan(userId, 1L, request));

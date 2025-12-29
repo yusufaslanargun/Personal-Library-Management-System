@@ -9,6 +9,7 @@ import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -36,5 +37,13 @@ public class ProgressController {
     public List<ProgressLogResponse> history(@AuthenticationPrincipal AuthenticatedUser user,
                                              @PathVariable Long id) {
         return progressService.history(user.id(), id);
+    }
+
+    @DeleteMapping("/{logId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void delete(@AuthenticationPrincipal AuthenticatedUser user,
+                       @PathVariable Long id,
+                       @PathVariable Long logId) {
+        progressService.deleteLog(user.id(), id, logId);
     }
 }

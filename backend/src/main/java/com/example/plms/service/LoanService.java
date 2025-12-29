@@ -33,7 +33,7 @@ public class LoanService {
         }
         MediaItem item = itemRepository.findByIdAndDeletedAtIsNullAndOwner_Id(itemId, userId)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Item not found"));
-        if (loanRepository.findFirstByItemIdAndReturnedAtIsNullAndItemOwner_Id(itemId, userId).isPresent()) {
+        if (loanRepository.findActiveLoanForOwner(itemId, userId).isPresent()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Item already loaned");
         }
 
@@ -50,7 +50,7 @@ public class LoanService {
 
     @Transactional
     public LoanResponse returnLoan(Long userId, Long loanId) {
-        Loan loan = loanRepository.findByIdAndItemOwner_Id(loanId, userId)
+        Loan loan = loanRepository.findByIdAndOwner(loanId, userId)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Loan not found"));
         if (loan.getReturnedAt() != null) {
             return toResponse(loan);
@@ -66,14 +66,14 @@ public class LoanService {
 
     @Transactional(readOnly = true)
     public List<LoanResponse> overdue(Long userId) {
-        return loanRepository.findByReturnedAtIsNullAndDueDateBeforeAndItemOwner_Id(LocalDate.now(), userId).stream()
+        return loanRepository.findOverdueForOwner(LocalDate.now(), userId).stream()
             .map(this::toResponse)
             .toList();
     }
 
     @Transactional(readOnly = true)
     public LoanResponse activeLoan(Long userId, Long itemId) {
-        Loan loan = loanRepository.findFirstByItemIdAndReturnedAtIsNullAndItemOwner_Id(itemId, userId)
+        Loan loan = loanRepository.findActiveLoanForOwner(itemId, userId)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "No active loan"));
         return toResponse(loan);
     }

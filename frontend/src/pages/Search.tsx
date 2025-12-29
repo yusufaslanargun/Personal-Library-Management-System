@@ -123,8 +123,8 @@ export default function Search() {
             {results.map((item) => (
               <Link to={`/items/${item.id}`} key={item.id} className="result-card">
                 <div className="result-top">
-                  <span className="pill">{item.type}</span>
-                  <span className="status">{item.status}</span>
+                  <span className={`pill ${item.type === 'BOOK' ? 'book' : 'dvd'}`}>{item.type}</span>
+                  <span className={`status-badge ${item.status === 'LOANED' ? 'loaned' : 'available'}`}>{item.status}</span>
                 </div>
                 <h4>{item.title}</h4>
                 <p className="muted">{item.year}</p>

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useParams } from 'react-router-dom'
-import { apiGet, apiPost, apiPut } from '../api'
+import { useNavigate, useParams } from 'react-router-dom'
+import { apiDelete, apiGet, apiPost, apiPut } from '../api'
 import { Item, Loan, ProgressLog } from '../types'
 
 interface DiffField {
@@ -12,6 +12,7 @@ interface DiffField {
 export default function ItemDetail() {
   const { id } = useParams()
   const itemId = Number(id)
+  const navigate = useNavigate()
   const [item, setItem] = useState<Item | null>(null)
   const [history, setHistory] = useState<ProgressLog[]>([])
   const [activeLoan, setActiveLoan] = useState<Loan | null>(null)
@@ -20,7 +21,6 @@ export default function ItemDetail() {
   const [selectedFields, setSelectedFields] = useState<string[]>([])
   const [progressForm, setProgressForm] = useState({
     date: new Date().toISOString().slice(0, 10),
-    durationMinutes: '',
     pageOrMinute: ''
   })
   const [loanForm, setLoanForm] = useState({
@@ -70,6 +70,19 @@ export default function ItemDetail() {
     }
   }
 
+  const deleteItem = async () => {
+    if (!item) return
+    const confirmed = window.confirm(`"${item.title}" will be moved to Trash. Continue?`)
+    if (!confirmed) return
+    setError('')
+    try {
+      await apiDelete(`/items/${item.id}`)
+      navigate('/trash')
+    } catch (err: any) {
+      setError(err.message)
+    }
+  }
+
   const refreshExternal = async () => {
     if (!item) return
     try {
@@ -96,13 +109,27 @@ export default function ItemDetail() {
     if (!item) return
     setError('')
     try {
+      if (!activeLoan) {
+        setError('Progress logging requires an active loan.')
+        return
+      }
       await apiPost(`/items/${item.id}/progress`, {
         date: progressForm.date,
-        durationMinutes: progressForm.durationMinutes ? Number(progressForm.durationMinutes) : undefined,
         pageOrMinute: Number(progressForm.pageOrMinute)
       })
       await load()
-      setProgressForm({ ...progressForm, pageOrMinute: '', durationMinutes: '' })
+      setProgressForm({ ...progressForm, pageOrMinute: '' })
+    } catch (err: any) {
+      setError(err.message)
+    }
+  }
+
+  const deleteProgress = async (logId: number) => {
+    if (!item) return
+    setError('')
+    try {
+      await apiDelete(`/items/${item.id}/progress/${logId}`)
+      await load()
     } catch (err: any) {
       setError(err.message)
     }
@@ -138,8 +165,27 @@ export default function ItemDetail() {
   return (
     <div className="stack">
       <div className="hero">
-        <h1>{item.title}</h1>
-        <p>#{item.id} - {item.type} - {item.status}</p>
+        <div className="hero-head">
+          <div>
+            <h1>{item.title}</h1>
+            <div className="item-meta">
+              <span>ID #{item.id}</span>
+              <span>Year {item.year}</span>
+            </div>
+          </div>
+          <div className="hero-chips">
+            <span className={`pill ${item.type === 'BOOK' ? 'book' : 'dvd'}`}>{item.type}</span>
+            <span className={`status-badge ${item.status === 'LOANED' ? 'loaned' : 'available'}`}>{item.status}</span>
+          </div>
+        </div>
+        <p className="muted">Progress {item.progressPercent}%</p>
+        {activeLoan ? (
+          <div className="loan-banner loaned">
+            Loaned to {activeLoan.toWhom}. Due {activeLoan.dueDate}.
+          </div>
+        ) : (
+          <div className="loan-banner available">Available for loan.</div>
+        )}
       </div>
       {error && <div className="banner error">{error}</div>}
 
@@ -233,7 +279,11 @@ export default function ItemDetail() {
               </label>
             </div>
           )}
-          <button onClick={saveItem}>Save</button>
+          <div className="inline">
+            <button onClick={saveItem}>Save</button>
+            <button className="danger" onClick={deleteItem}>Move to Trash</button>
+          </div>
+          <p className="muted">Delete moves the item to Trash so it can be restored later.</p>
         </div>
 
         <div className="card">
@@ -284,15 +334,14 @@ export default function ItemDetail() {
               <input type="date" value={progressForm.date} onChange={(e) => setProgressForm({ ...progressForm, date: e.target.value })} />
             </label>
             <label>
-              Duration (min)
-              <input value={progressForm.durationMinutes} onChange={(e) => setProgressForm({ ...progressForm, durationMinutes: e.target.value })} />
-            </label>
-            <label>
               Page / Minute
               <input value={progressForm.pageOrMinute} onChange={(e) => setProgressForm({ ...progressForm, pageOrMinute: e.target.value })} />
             </label>
           </div>
-          <button onClick={logProgress}>Log Progress</button>
+          <button onClick={logProgress} disabled={!activeLoan}>Log Progress</button>
+          {!activeLoan && (
+            <p className="muted">Create a loan first to track progress.</p>
+          )}
           <div className="divider" />
           <h4>History</h4>
           {history.length === 0 ? (
@@ -301,7 +350,16 @@ export default function ItemDetail() {
             <ul className="list">
               {history.map((log) => (
                 <li key={log.id}>
-                  {log.date} - {log.pageOrMinute} ({log.percent}%)
+                  <div className="item-info">
+                    <span className="item-title">{log.date}</span>
+                    <div className="item-meta">
+                      <span>{log.pageOrMinute} ({log.percent}%)</span>
+                      <span>{log.readerName || 'Reader unknown'}</span>
+                    </div>
+                  </div>
+                  <div className="actions">
+                    <button className="ghost small" onClick={() => deleteProgress(log.id)}>Delete</button>
+                  </div>
                 </li>
               ))}
             </ul>
@@ -309,16 +367,28 @@ export default function ItemDetail() {
         </div>
 
         <div className="card">
-          <h3>Loan</h3>
-          {activeLoan ? (
+          <div className="loan-header">
             <div>
-              <p>
-                Loaned to <strong>{activeLoan.toWhom}</strong> until {activeLoan.dueDate}.
-              </p>
+              <h3>Loan Status</h3>
+              <p className="muted">Track who has this item and when it is due.</p>
+            </div>
+            <span className={`status-badge ${activeLoan ? 'loaned' : 'available'}`}>
+              {activeLoan ? 'LOANED' : 'AVAILABLE'}
+            </span>
+          </div>
+          {activeLoan ? (
+            <div className="stack">
+              <div>
+                Loaned to <strong>{activeLoan.toWhom}</strong>.
+              </div>
+              <div className="item-meta">
+                <span>Start {activeLoan.startDate}</span>
+                <span>Due {activeLoan.dueDate}</span>
+              </div>
               <button className="secondary" onClick={returnLoan}>Mark Returned</button>
             </div>
           ) : (
-            <div>
+            <div className="stack">
               <div className="form-grid">
                 <label>
                   To Whom

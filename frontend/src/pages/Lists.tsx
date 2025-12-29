@@ -1,20 +1,27 @@
 import { useEffect, useState } from 'react'
-import { apiGet, apiPost, apiPut, apiDelete } from '../api'
-import { MediaList } from '../types'
+import { Link } from 'react-router-dom'
+import { apiGet, apiPost, apiDelete } from '../api'
+import { Item, MediaList } from '../types'
 
 export default function Lists() {
   const [lists, setLists] = useState<MediaList[]>([])
   const [selected, setSelected] = useState<MediaList | null>(null)
   const [newName, setNewName] = useState('')
   const [addItemId, setAddItemId] = useState('')
+  const [itemIndex, setItemIndex] = useState<Record<number, Item>>({})
   const [error, setError] = useState('')
 
   const load = () => {
-    apiGet<MediaList[]>('/lists')
-      .then((response) => {
-        setLists(response)
+    Promise.all([apiGet<MediaList[]>('/lists'), apiGet<Item[]>('/items')])
+      .then(([listResponse, itemResponse]) => {
+        setLists(listResponse)
+        const index: Record<number, Item> = {}
+        itemResponse.forEach((item) => {
+          index[item.id] = item
+        })
+        setItemIndex(index)
         if (selected) {
-          const updated = response.find((list) => list.id === selected.id)
+          const updated = listResponse.find((list) => list.id === selected.id)
           setSelected(updated || null)
         }
       })
@@ -109,15 +116,29 @@ export default function Lists() {
                 <p className="muted">No items yet.</p>
               ) : (
                 <ul className="list">
-                  {selected.items.map((item, index) => (
-                    <li key={item.itemId}>
-                      <span>{item.title}</span>
-                      <div className="actions">
-                        <button className="ghost small" onClick={() => move(index, -1)}>Up</button>
-                        <button className="ghost small" onClick={() => move(index, 1)}>Down</button>
-                      </div>
-                    </li>
-                  ))}
+                  {selected.items.map((item, index) => {
+                    const meta = itemIndex[item.itemId]
+                    const typeClass = meta?.type === 'BOOK' ? 'book' : meta?.type === 'DVD' ? 'dvd' : ''
+                    const statusClass = meta?.status === 'LOANED' ? 'loaned' : 'available'
+                    return (
+                      <li key={item.itemId}>
+                        <div className="item-info">
+                          <Link className="item-link" to={`/items/${item.itemId}`}>{item.title}</Link>
+                          <div className="item-meta">
+                            <span className={`pill small ${typeClass}`}>{meta?.type || 'ITEM'}</span>
+                            {meta?.year && <span>{meta.year}</span>}
+                            {meta?.status && (
+                              <span className={`status-badge ${statusClass}`}>{meta.status}</span>
+                            )}
+                          </div>
+                        </div>
+                        <div className="actions">
+                          <button className="ghost small" onClick={() => move(index, -1)}>Up</button>
+                          <button className="ghost small" onClick={() => move(index, 1)}>Down</button>
+                        </div>
+                      </li>
+                    )
+                  })}
                 </ul>
               )}
             </>

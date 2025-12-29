@@ -7,6 +7,7 @@ public record ProgressLogResponse(
     LocalDate date,
     Integer durationMinutes,
     Integer pageOrMinute,
-    Integer percent
+    Integer percent,
+    String readerName
 ) {
 }

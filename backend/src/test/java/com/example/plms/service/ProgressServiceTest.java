@@ -2,6 +2,7 @@ package com.example.plms.service;
 
 import com.example.plms.domain.MediaItem;
 import com.example.plms.domain.MediaType;
+import com.example.plms.repository.LoanRepository;
 import com.example.plms.repository.MediaItemRepository;
 import com.example.plms.repository.ProgressLogRepository;
 import com.example.plms.web.dto.ProgressLogRequest;
@@ -26,6 +27,9 @@ class ProgressServiceTest {
     @Mock
     private ProgressLogRepository progressLogRepository;
 
+    @Mock
+    private LoanRepository loanRepository;
+
     @InjectMocks
     private ProgressService progressService;
 
@@ -35,6 +39,9 @@ class ProgressServiceTest {
         MediaItem item = new MediaItem(MediaType.BOOK, "Test", 2020);
         item.setTotalValue(200);
         when(itemRepository.findByIdAndDeletedAtIsNullAndOwner_Id(1L, userId)).thenReturn(Optional.of(item));
+        when(loanRepository.findActiveLoanForOwner(1L, userId)).thenReturn(Optional.of(new com.example.plms.domain.Loan(
+            item, "Reader", LocalDate.now(), LocalDate.now().plusDays(1)
+        )));
         when(progressLogRepository.save(org.mockito.Mockito.any())).thenAnswer(invocation -> invocation.getArgument(0));
 
         ProgressLogRequest request = new ProgressLogRequest(LocalDate.now(), 30, 100);
@@ -49,8 +56,23 @@ class ProgressServiceTest {
         MediaItem item = new MediaItem(MediaType.BOOK, "Test", 2020);
         item.setTotalValue(100);
         when(itemRepository.findByIdAndDeletedAtIsNullAndOwner_Id(1L, userId)).thenReturn(Optional.of(item));
+        when(loanRepository.findActiveLoanForOwner(1L, userId)).thenReturn(Optional.of(new com.example.plms.domain.Loan(
+            item, "Reader", LocalDate.now(), LocalDate.now().plusDays(1)
+        )));
 
         ProgressLogRequest request = new ProgressLogRequest(LocalDate.now(), 10, 120);
+        assertThrows(ResponseStatusException.class, () -> progressService.logProgress(userId, 1L, request));
+    }
+
+    @Test
+    void rejectsProgressWithoutActiveLoan() {
+        long userId = 1L;
+        MediaItem item = new MediaItem(MediaType.BOOK, "Test", 2020);
+        item.setTotalValue(100);
+        when(itemRepository.findByIdAndDeletedAtIsNullAndOwner_Id(1L, userId)).thenReturn(Optional.of(item));
+        when(loanRepository.findActiveLoanForOwner(1L, userId)).thenReturn(Optional.empty());
+
+        ProgressLogRequest request = new ProgressLogRequest(LocalDate.now(), 10, 50);
         assertThrows(ResponseStatusException.class, () -> progressService.logProgress(userId, 1L, request));
     }
 }

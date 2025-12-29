@@ -330,6 +330,7 @@ public class SyncService {
             log.getDurationMinutes(),
             log.getPageOrMinute(),
             log.getPercent(),
+            log.getReaderName(),
             log.getUpdatedAt()
         );
     }
@@ -507,17 +508,19 @@ public class SyncService {
                 continue;
             }
             jdbcTemplate.update("""
-                INSERT INTO progress_log (id, item_id, log_date, duration_minutes, page_or_minute, percent, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO progress_log (id, item_id, log_date, duration_minutes, page_or_minute, percent, reader_name, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT (id) DO UPDATE SET
                   item_id = EXCLUDED.item_id,
                   log_date = EXCLUDED.log_date,
                   duration_minutes = EXCLUDED.duration_minutes,
                   page_or_minute = EXCLUDED.page_or_minute,
                   percent = EXCLUDED.percent,
+                  reader_name = EXCLUDED.reader_name,
                   updated_at = EXCLUDED.updated_at
                 """,
-                log.id(), log.itemId(), log.date(), log.durationMinutes(), log.pageOrMinute(), log.percent(), log.updatedAt());
+                log.id(), log.itemId(), log.date(), log.durationMinutes(), log.pageOrMinute(), log.percent(),
+                log.readerName(), log.updatedAt());
         }
         return conflicts;
     }

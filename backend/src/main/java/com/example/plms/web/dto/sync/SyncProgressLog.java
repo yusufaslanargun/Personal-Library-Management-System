@@ -10,6 +10,7 @@ public record SyncProgressLog(
     Integer durationMinutes,
     Integer pageOrMinute,
     Integer percent,
+    String readerName,
     OffsetDateTime updatedAt
 ) {
 }

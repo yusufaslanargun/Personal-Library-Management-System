@@ -116,7 +116,7 @@ public class ImportExportService {
             ? List.of()
             : progressRepository.findByItemIdIn(itemIds).stream()
                 .map(log -> new ExportProgressLog(log.getId(), log.getItem().getId(), log.getLogDate(),
-                    log.getDurationMinutes(), log.getPageOrMinute(), log.getPercent()))
+                    log.getDurationMinutes(), log.getPageOrMinute(), log.getPercent(), log.getReaderName()))
                 .toList();
         List<ExportLoan> loans = itemIds.isEmpty()
             ? List.of()
@@ -336,16 +336,18 @@ public class ImportExportService {
                 added++;
             }
             jdbcTemplate.update("""
-                INSERT INTO progress_log (id, item_id, log_date, duration_minutes, page_or_minute, percent, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO progress_log (id, item_id, log_date, duration_minutes, page_or_minute, percent, reader_name, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT (id) DO UPDATE SET
                 item_id = EXCLUDED.item_id,
                 log_date = EXCLUDED.log_date,
                 duration_minutes = EXCLUDED.duration_minutes,
                 page_or_minute = EXCLUDED.page_or_minute,
                 percent = EXCLUDED.percent,
+                reader_name = EXCLUDED.reader_name,
                 updated_at = EXCLUDED.updated_at
-                """, log.id(), log.itemId(), log.date(), log.durationMinutes(), log.pageOrMinute(), log.percent(), OffsetDateTime.now());
+                """, log.id(), log.itemId(), log.date(), log.durationMinutes(), log.pageOrMinute(), log.percent(),
+                log.readerName(), OffsetDateTime.now());
         }
 
         for (ExportLoan loan : bundle.loans()) {
@@ -656,9 +658,10 @@ public class ImportExportService {
     }
 
     private void writeProgressCsv(CSVPrinter printer, List<ExportProgressLog> logs) throws IOException {
-        printer.printRecord("id", "itemId", "date", "durationMinutes", "pageOrMinute", "percent");
+        printer.printRecord("id", "itemId", "date", "durationMinutes", "pageOrMinute", "percent", "readerName");
         for (ExportProgressLog log : logs) {
-            printer.printRecord(log.id(), log.itemId(), log.date(), log.durationMinutes(), log.pageOrMinute(), log.percent());
+            printer.printRecord(log.id(), log.itemId(), log.date(), log.durationMinutes(), log.pageOrMinute(),
+                log.percent(), log.readerName());
         }
     }
 
@@ -746,7 +749,8 @@ public class ImportExportService {
         for (CSVRecord record : records) {
             logs.add(new ExportProgressLog(parseLong(record.get("id")), parseLong(record.get("itemId")),
                 LocalDate.parse(record.get("date")), parseInteger(record.get("durationMinutes")),
-                parseInteger(record.get("pageOrMinute")), parseInteger(record.get("percent"))));
+                parseInteger(record.get("pageOrMinute")), parseInteger(record.get("percent")),
+                getOptional(record, "readerName")));
         }
         return logs;
     }
@@ -795,6 +799,14 @@ public class ImportExportService {
 
     private boolean notBlank(String value) {
         return value != null && !value.isBlank();
+    }
+
+    private String getOptional(CSVRecord record, String key) {
+        if (record == null || key == null || !record.isMapped(key)) {
+            return null;
+        }
+        String value = record.get(key);
+        return notBlank(value) ? value : null;
     }
 
     private Long parseLong(String value) {

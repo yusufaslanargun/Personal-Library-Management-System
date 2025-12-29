@@ -34,6 +34,9 @@ public class ProgressLog {
     @Column(name = "page_or_minute", nullable = false)
     private Integer pageOrMinute;
 
+    @Column(name = "reader_name")
+    private String readerName;
+
     @Column(nullable = false)
     private Integer percent;
 
@@ -43,12 +46,14 @@ public class ProgressLog {
     protected ProgressLog() {
     }
 
-    public ProgressLog(MediaItem item, LocalDate logDate, Integer durationMinutes, Integer pageOrMinute, Integer percent) {
+    public ProgressLog(MediaItem item, LocalDate logDate, Integer durationMinutes, Integer pageOrMinute, Integer percent,
+                       String readerName) {
         this.item = item;
         this.logDate = logDate;
         this.durationMinutes = durationMinutes;
         this.pageOrMinute = pageOrMinute;
         this.percent = percent;
+        this.readerName = readerName;
     }
 
     @PrePersist
@@ -79,6 +84,10 @@ public class ProgressLog {
 
     public Integer getPageOrMinute() {
         return pageOrMinute;
+    }
+
+    public String getReaderName() {
+        return readerName;
     }
 
     public Integer getPercent() {
